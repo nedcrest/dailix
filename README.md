@@ -1,4 +1,4 @@
-# Footage Studio
+# Rushix
 
 Bringing footage in and choosing it: media from cards and phones into a
 staging place, a native contact sheet to rate, note and mark segments,

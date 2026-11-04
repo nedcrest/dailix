@@ -136,19 +136,19 @@ pub enum RoleOp { Add { title: String, en: String, hint: String } }   // key mad
 ### 6. CLI, schema, a text view
 
 The studio's binary, CLI-only until it has a window:
-- `footage-studio sheet apply <notes.json> <ops.json>`: the ops, checked,
+- `rushix sheet apply <notes.json> <ops.json>`: the ops, checked,
   written; one line per outcome;
-- `footage-studio sheet describe <notes.json> [--day D]`: a line per mark
+- `rushix sheet describe <notes.json> [--day D]`: a line per mark
   (day, clip, span, role, note) and per rated clip: what the AI reads in
   place of the JSON (brainstorm D12);
-- `footage-studio sheet schema`: the JSON Schema of the file and of the
+- `rushix sheet schema`: the JSON Schema of the file and of the
   ops (`schemars`, as Omnix's `ops-schema`).
 
 ### 7. Where it lives
 
 A Cargo workspace in this repo: `crates/sheet` (the core, a library),
 the studio binary beside it. Omnix depends on the core by path
-(`../footage-studio/crates/sheet`) and its `notes.rs` goes away. A path
+(`../rushix/crates/sheet`) and its `notes.rs` goes away. A path
 across two repos builds locally; if either is ever published, the
 dependency becomes a git or crates.io one.
 
@@ -176,14 +176,10 @@ dependency becomes a git or crates.io one.
 
 Then the studio's window (the next plan), on this core.
 
-## Decisions for the user
+## Decided (user, 2026-11-04)
 
-1. **The name** (the binary, the crate): working names `footage-studio`
-   and `sheet`.
-2. **Ids written into the real sheet.** The first write through the core
-   gives every mark in Kos's `notes.json` an `id`. Harmless to the web
-   sheet and Python, but the file changes; a full copy is kept beside it
-   (`notes.before-omnix-io.json`, 2026-11-04) and the `.bak`.
-3. **Time precision.** The sheet rounds to a tenth; Omnix's I / O wrote
-   to a thousandth. Proposed: the core keeps what it's given, to a
-   thousandth; the web sheet's tenths stay as they are.
+1. **The name:** Rushix; the binary `rushix`, the core `rushix-sheet`
+   (`crates/sheet`).
+2. **Ids in the real sheet:** yes, written.
+3. **Time precision:** what the core is given, to a thousandth; the web
+   sheet's tenths stay as they are.
