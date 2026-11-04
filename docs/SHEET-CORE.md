@@ -164,8 +164,15 @@ dependency becomes a git or crates.io one.
    pushes new marks and splices deleted ones, never rebuilds one, so it
    keeps the field (read in `report.html`). On a scratch copy of Kos's
    sheet: 86 of 86 marks given ids, nothing else changed.
-3. **Operations and `check`.** Each op with its tests; `check` after
-   every op.
+3. **Operations and `check`** — done 2026-11-04 (`ops.rs`). Mark add /
+   move / role / note / remove, clip rate / note / voice, a day's note, a
+   role added (keyed as the web sheet keys one, checked against
+   JavaScript itself). New things in the web sheet's shapes. `check`
+   lists problems (a segment under 0.2 s, Omnix's shortest cut; a flag
+   with an end; a twice-used id; an unknown role; keys not
+   `<day>/<file>`); an op is refused only for a problem it would add, so
+   one already in a file blocks nothing. Kos's sheet (a scratch copy):
+   no problems.
 4. **Undo, and properties.** `Edit` with `begin` / `commit`; proptest:
    random op sequences keep `check`, and undo restores each state.
 5. **`Store`.** Fresh read, apply, check, atomic write, `.bak`; a test of
