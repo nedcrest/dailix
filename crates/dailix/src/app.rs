@@ -5,6 +5,9 @@
 //! the marking does. The player and the segments come next (as Omnix's
 //! bin has them).
 
+#[path = "pane.rs"]
+mod pane;
+
 use crate::footage::{self, Footage};
 use crate::settings::Settings;
 use dailix_sheet::{ClipOp, DayOp, Layout, MarkKind, Op, Rating, Sheet, Store};
@@ -52,6 +55,10 @@ struct App {
     dirty: HashSet<String>,
     /// The clip picked (its key): what the keys rate.
     selected: Option<String>,
+    /// The picked clip in the player at the right.
+    pane: pane::Pane,
+    /// The window's height, to keep the player's picture to part of it.
+    height: f32,
 }
 
 #[derive(Debug, Clone)]
@@ -72,6 +79,9 @@ enum Message {
     Key(iced::keyboard::Key, iced::keyboard::key::Physical, iced::keyboard::Modifiers),
     /// Where the picked tile and the list are, to bring it into view.
     Placed(Placement),
+    /// The player at the right.
+    Pane(pane::PaneMsg),
+    Resized(iced::Size),
 }
 
 /// The tiles' list: its id, for scrolling it.
@@ -153,7 +163,7 @@ fn clock(t: f64) -> String {
 impl App {
     fn new(open: Option<PathBuf>) -> (App, Task<Message>) {
         let settings = Settings::load();
-        let mut app = App { project: None, error: None, making: HashSet::new(), drafts: HashMap::new(), dirty: HashSet::new(), selected: None, settings };
+        let mut app = App { project: None, error: None, making: HashSet::new(), drafts: HashMap::new(), dirty: HashSet::new(), selected: None, pane: pane::Pane::default(), height: 920.0, settings };
         let root = open.or_else(|| app.settings.last.clone());
         let task = match root {
             Some(root) => app.load(root),
@@ -201,23 +211,35 @@ impl App {
         }))
     }
 
-    /// Applies `op` to the sheet on disk and keeps the result.
-    fn change(&mut self, op: Op) {
-        let Some(p) = &mut self.project else { return };
-        match p.store.apply(&[op]).map_err(|e| e.to_string()).and_then(|(doc, _)| doc.sheet().map_err(|e| e.to_string())) {
-            Ok(sheet) => {
+    /// Applies `op` to the sheet on disk and keeps the result; the id of
+    /// what it made, if it made something.
+    fn change(&mut self, op: Op) -> Option<String> {
+        let p = self.project.as_mut()?;
+        match p.store.apply(&[op]).map_err(|e| e.to_string()).and_then(|(doc, out)| Ok((doc.sheet().map_err(|e| e.to_string())?, out))) {
+            Ok((sheet, out)) => {
                 p.sheet = sheet;
                 self.error = None;
+                out.into_iter().find_map(|o| o.made)
             }
-            Err(e) => self.error = Some(e),
+            Err(e) => {
+                self.error = Some(e);
+                None
+            }
         }
     }
 
     fn subscription(&self) -> iced::Subscription<Message> {
-        iced::keyboard::listen().filter_map(|e| match e {
+        let keys = iced::keyboard::listen().filter_map(|e| match e {
             iced::keyboard::Event::KeyPressed { key, physical_key, modifiers, .. } => Some(Message::Key(key, physical_key, modifiers)),
             _ => None,
-        })
+        });
+        let size = iced::window::resize_events().map(|(_, s)| Message::Resized(s));
+        // The player's frames, every screen frame while it plays or seeks.
+        if self.pane_busy() {
+            iced::Subscription::batch([keys, size, iced::window::frames().map(|_| Message::Pane(pane::PaneMsg::Tick))])
+        } else {
+            iced::Subscription::batch([keys, size])
+        }
     }
 
     /// Every clip's key, day by day: the order the arrows go in.
@@ -243,12 +265,16 @@ impl App {
     /// Picks `key` and asks where its tile is, to scroll to it.
     fn select(&mut self, key: String) -> Task<Message> {
         self.selected = Some(key.clone());
-        iced::advanced::widget::operate(Find { tile: iced::widget::Id::from(key), list: None, found: None }).map(Message::Placed)
+        let open = self.open_clip(&key);
+        let place = iced::advanced::widget::operate(Find { tile: iced::widget::Id::from(key), list: None, found: None }).map(Message::Placed);
+        Task::batch([open, place])
     }
 
     fn update(&mut self, message: Message) -> Task<Message> {
         match message {
             Message::Select(key) => return self.select(key),
+            Message::Pane(msg) => return self.on_pane(msg),
+            Message::Resized(s) => self.height = s.height,
             Message::Placed(p) => {
                 // Scrolled only as far as needed, with a margin.
                 let (top, bottom) = (p.tile.y - p.content.y, p.tile.y - p.content.y + p.tile.height);
@@ -268,6 +294,13 @@ impl App {
                 use iced::keyboard::key::{Code, Named, Physical};
                 use iced::keyboard::Key;
                 if mods.command() || mods.alt() {
+                    return Task::none();
+                }
+                // The player's keys first, while a clip is open in it.
+                if self.pane.key.is_some()
+                    && let Physical::Code(code) = physical
+                    && self.pane_key(code)
+                {
                     return Task::none();
                 }
                 // Rated by a key, by its place (P, X, U and the ? key read
@@ -354,7 +387,11 @@ impl App {
         for day in &p.footage.days {
             days = days.push(rule::horizontal(1)).push(self.day(p, day));
         }
-        page.push(scrollable(days).id(LIST).height(Length::Fill)).into()
+        let list = scrollable(days).id(LIST).height(Length::Fill).width(Length::Fill);
+        match self.pane() {
+            Some(pane) => page.push(row![list, pane].spacing(8).padding(iced::Padding { right: 8.0, bottom: 8.0, ..Default::default() })).into(),
+            None => page.push(list).into(),
+        }
     }
 
     /// A day: its date, how far it's rated, its story, its clips.
