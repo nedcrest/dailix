@@ -55,30 +55,27 @@ Facts that shape the design:
 
 ## The design
 
-### 1. The model: typed, with the unknown kept
+### 1. The model: the file as read, a typed view over it
 
-```rust
-pub struct Sheet {
-    pub days: IndexMap<String, Day>,          // in the order read
-    pub clips: IndexMap<ClipKey, Clip>,
-    pub roles: Vec<Role>,                     // skipped when empty
-    pub ui: Value,                            // the sheet's view state, passed through
-    #[serde(flatten)] pub rest: Map<String, Value>,
-}
-pub struct Clip { rating: Option<Rating>, note: String, audio: Option<String>,
-                  marks: Vec<Mark>, #[serde(flatten)] rest: Map<String, Value> }
-pub struct Mark { id: MarkId, t: Time, end: Option<Time>, kind: MarkKind,  // Segment | Point | Flag
-                  role: Option<String>, note: String, #[serde(flatten)] rest: Map<String, Value> }
-```
+Built in step 1 (2026-11-04). First drafted as typed structs with the
+unknown fields kept beside them; dropped before code, because the sheet
+writes a mark's keys in varying order (`{t, note, end, role}` from a new
+mark, `{t, end, role, note}` elsewhere) and typed structs write one
+order, so a file would change for nothing.
 
-- `rest` on every level: a field the core doesn't know is read and
-  written back untouched.
-- `Time` writes an integral value as an integer (`26`, not `26.0`) and
-  keeps the order of keys as read, so a file read and written unchanged
-  is byte for byte the same (a test on a synthetic sheet; checked once
-  by hand on a copy of Kos's).
-- `MarkKind` is derived on read (`kind: "flag"`, else `end` present or
-  not) and written back in the sheet's own shape, not as a new field.
+- `Doc`: the file as read (`serde_json::Value`, keys in their order,
+  numbers in their form: `26` stays `26`, `9.0` stays `9.0`, fields this
+  crate doesn't know kept at every level). Operations (step 3) change it
+  in place; `text()` writes it in the sheet's form (Python's
+  `json.dumps(indent=2, ensure_ascii=False)`, no newline at the end).
+- `Sheet`: the typed view (`days`, `clips` keyed `<day>/<file>`,
+  `roles`), read from the `Doc` for programs to show and for `check`.
+  A `Mark`'s kind is derived: `kind: "flag"` a flag, `end` a segment,
+  else a point.
+- Tests: a made-up sheet with every easy-to-lose thing, written by
+  Python's own call, read and written back byte for byte; the same by
+  hand on a scratch copy of Kos's sheet (an ignored test given the path
+  in `RUSHIX_SHEET`): identical.
 
 ### 2. Ids for marks
 
