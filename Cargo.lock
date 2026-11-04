@@ -149,6 +149,7 @@ dependencies = [
  "clap",
  "dailix-sheet",
  "schemars",
+ "serde",
  "serde_json",
 ]
 

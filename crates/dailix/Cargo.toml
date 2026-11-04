@@ -9,4 +9,5 @@ license.workspace = true
 dailix-sheet = { path = "../sheet" }
 clap.workspace = true
 serde_json.workspace = true
+serde.workspace = true
 schemars.workspace = true

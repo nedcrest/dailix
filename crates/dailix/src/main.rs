@@ -1,6 +1,10 @@
 //! Dailix: bringing footage in and choosing it. Only the command line for
 //! now; the window comes next (`docs/CONTEXT.md`).
 
+mod import;
+mod install;
+mod settings;
+
 use clap::{Parser, Subcommand};
 use dailix_sheet::{Doc, MarkKind, Op, Rating, Sheet, Store};
 use std::path::PathBuf;
@@ -15,9 +19,32 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
-    /// The contact sheet's marking (`report/notes.json`).
+    /// The contact sheet's marking (a project's `dailix/sheet.json`).
     #[command(subcommand)]
     Sheet(SheetCmd),
+    /// The three places (README): shows them, or sets those given.
+    Places {
+        #[arg(long)]
+        tmp: Option<PathBuf>,
+        #[arg(long)]
+        projects: Option<PathBuf>,
+        /// The originals' folder (a local, removable or mounted network one).
+        #[arg(long)]
+        sources: Option<PathBuf>,
+    },
+    /// A footage-agent project made into a Dailix one, in the projects
+    /// place; the old one and the archive are only read.
+    ImportLegacy {
+        old: PathBuf,
+        /// The new project's folder name (default: the old one's).
+        #[arg(long)]
+        name: Option<String>,
+        /// Say what it would copy, and copy nothing.
+        #[arg(long)]
+        dry_run: bool,
+    },
+    /// The icon and a desktop entry, in the menu and on the desktop (Linux).
+    Install,
 }
 
 #[derive(Subcommand)]
@@ -60,7 +87,48 @@ fn main() -> ExitCode {
 }
 
 fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
-    let Command::Sheet(cmd) = cli.command;
+    let cmd = match cli.command {
+        Command::Sheet(cmd) => cmd,
+        Command::Places { tmp, projects, sources } => {
+            let mut s = settings::Settings::load();
+            let changed = tmp.is_some() || projects.is_some() || sources.is_some();
+            s.tmp = tmp.or(s.tmp);
+            s.projects = projects.or(s.projects);
+            s.sources = sources.map(|path| settings::Sources::Folder { path }).or(s.sources);
+            if changed {
+                s.save()?;
+            }
+            print!("{}", s.describe());
+            return Ok(());
+        }
+        Command::ImportLegacy { old, name, dry_run } => {
+            let projects = settings::Settings::load().projects.ok_or("set the projects place first: dailix places --projects <folder>")?;
+            let name = name.or_else(|| old.file_name().map(|n| n.to_string_lossy().into_owned())).ok_or("name the new project: --name")?;
+            let plan = import::plan(&old, &projects.join(&name))?;
+            let gb = |b: u64| b as f64 / 1e9;
+            println!("{} → {}: {} files, {:.1} GB", old.display(), plan.layout.root.display(), plan.copies.len(), gb(plan.bytes()));
+            if dry_run {
+                return Ok(());
+            }
+            let mut shown = 0;
+            import::run(&plan, |done, total| {
+                // A line every 5 % or so.
+                let pct = if total == 0 { 100 } else { done * 100 / total };
+                if pct >= shown + 5 || done == total {
+                    shown = pct;
+                    println!("{pct:>3} %  {:.1} of {:.1} GB", gb(done), gb(total));
+                }
+            })?;
+            println!("done: {}", plan.layout.root.display());
+            return Ok(());
+        }
+        Command::Install => {
+            for f in install::install()? {
+                println!("{}", f.display());
+            }
+            return Ok(());
+        }
+    };
     match cmd {
         SheetCmd::Apply { notes, ops } => {
             let text = if ops.as_os_str() == "-" { std::io::read_to_string(std::io::stdin())? } else { std::fs::read_to_string(&ops)? };

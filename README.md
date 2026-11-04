@@ -63,7 +63,7 @@ a program keeps lives in `dailix/` beside them.
     project.json             what the project is, where it came from
     sheet.json               the marking: days, ratings, notes, segments
     analysis/<day>/<clip>.footage.json
-    thumbs/<day>/<clip>/0001.jpg …
+    thumbs/<day>/<clip>.jpg  a poster per clip, made when first shown
     voice/<day>/<clip>/<recipe>.flac   cleaned voices
 ```
 
