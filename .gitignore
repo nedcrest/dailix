@@ -1,0 +1,11 @@
+/target
+*.part
+# Footage never goes in the repo.
+*.mp4
+*.MP4
+*.mov
+*.MOV
+*.osv
+*.OSV
+*.insv
+*.LRF
