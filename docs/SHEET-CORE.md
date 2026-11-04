@@ -173,8 +173,12 @@ dependency becomes a git or crates.io one.
    `<day>/<file>`); an op is refused only for a problem it would add, so
    one already in a file blocks nothing. Kos's sheet (a scratch copy):
    no problems.
-4. **Undo, and properties.** `Edit` with `begin` / `commit`; proptest:
-   random op sequences keep `check`, and undo restores each state.
+4. **Undo, and properties** — done 2026-11-04 (`edit.rs`,
+   `tests/props.rs`). `Edit`: an op a step, a run between `begin` and
+   `commit` one step, no step for nothing changed, 200 steps back.
+   Proptest: random runs of up to 40 ops (bad roles, ratings and ids
+   among them) keep `check` empty, read back from their own text, and
+   undo and redo walk every state; 5000 runs pass.
 5. **`Store`.** Fresh read, apply, check, atomic write, `.bak`; a test of
    two writers (an op applied over a file changed meanwhile).
 6. **CLI and schema.** `apply`, `describe`, `schema`; tests of each.
