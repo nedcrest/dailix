@@ -5,8 +5,11 @@
 //!
 //! Keys (the window's, read by their place so any layout works): Space
 //! plays; I and O make a segment (or, inside the picked one, move its
-//! ends); F sets a flag; Page Up / Down go to the mark before or after; a
-//! role's letter gives the picked mark that role; Delete removes it.
+//! ends); F sets a flag; Page Up / Down go to the mark before or after;
+//! Delete removes the picked one. A mark just made (F, or O after I) asks
+//! at once for its role (↑ ↓, Enter) and its note (Enter); Esc or Tab
+//! before that takes it away again (user, 2026-11-05: roles had a key each,
+//! which is hard to learn).
 
 use super::{App, Message};
 use dailix_sheet::{MarkKind, MarkOp, Op};
@@ -21,16 +24,16 @@ pub const WIDTH: f32 = 600.0;
 /// How long the pick rests on a clip before the player opens it.
 const REST: std::time::Duration = std::time::Duration::from_millis(250);
 
-/// The roles: key, the sheet's name, its colour, the letter that sets it.
-pub const ROLES: [(&str, &str, Color, char); 8] = [
-    ("talk", "розмова / sync", Color::from_rgb8(0xc0, 0x56, 0x3a), 't'),
-    ("establish", "загальний / establishing", Color::from_rgb8(0x4f, 0x8a, 0x6a), 'e'),
-    ("broll", "фон / B-roll", Color::from_rgb8(0x6b, 0x7f, 0x9e), 'b'),
-    ("detail", "деталь / insert", Color::from_rgb8(0xc9, 0x8a, 0x5e), 'd'),
-    ("cut", "перебивка / cutaway", Color::from_rgb8(0xb0, 0x7a, 0xa8), 'c'),
-    ("action", "дія / action", Color::from_rgb8(0xd2, 0x9a, 0x5e), 'a'),
-    ("reveal", "ревіл / reveal", Color::from_rgb8(0x7a, 0x6b, 0xab), 'v'),
-    ("reaction", "реакція / reaction", Color::from_rgb8(0xd1, 0x8f, 0xa5), 'r'),
+/// The roles: key, the sheet's name, its colour.
+pub const ROLES: [(&str, &str, Color); 8] = [
+    ("talk", "розмова / sync", Color::from_rgb8(0xc0, 0x56, 0x3a)),
+    ("establish", "загальний / establishing", Color::from_rgb8(0x4f, 0x8a, 0x6a)),
+    ("broll", "фон / B-roll", Color::from_rgb8(0x6b, 0x7f, 0x9e)),
+    ("detail", "деталь / insert", Color::from_rgb8(0xc9, 0x8a, 0x5e)),
+    ("cut", "перебивка / cutaway", Color::from_rgb8(0xb0, 0x7a, 0xa8)),
+    ("action", "дія / action", Color::from_rgb8(0xd2, 0x9a, 0x5e)),
+    ("reveal", "ревіл / reveal", Color::from_rgb8(0x7a, 0x6b, 0xab)),
+    ("reaction", "реакція / reaction", Color::from_rgb8(0xd1, 0x8f, 0xa5)),
 ];
 
 /// A role's colour; grey for none or one of the user's own.
@@ -60,7 +63,26 @@ pub struct Pane {
     pub mark_in: Option<f64>,
     pub note: Option<String>,
     pub focused: bool,
+    /// A mark just made, being given its role, then its note; Esc or Tab
+    /// before the last Enter takes it away again.
+    pub pending: Option<Pending>,
 }
+
+/// A new mark's role (the highlighted choice) or note (as typed).
+#[derive(Debug, Clone, PartialEq)]
+pub enum Stage {
+    Role(usize),
+    Note(String),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Pending {
+    pub id: String,
+    pub stage: Stage,
+}
+
+/// The new mark's note field, focused when its role is chosen.
+const NOTE: &str = "new-mark-note";
 
 /// A role in the pick list.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -95,6 +117,10 @@ pub enum PaneMsg {
     Note(String),
     NoteSave,
     Remove,
+    /// The new mark's role chosen by a click (its place in the choices).
+    PendingRole(usize),
+    PendingNote(String),
+    PendingDone,
 }
 
 impl App {
@@ -142,6 +168,21 @@ impl App {
     pub(super) fn on_pane(&mut self, msg: PaneMsg) -> iced::Task<Message> {
         match msg {
             PaneMsg::Rested(key) => return self.load_clip(key),
+            PaneMsg::PendingRole(i) => return self.pending_role(i),
+            PaneMsg::PendingNote(text) => {
+                if let Some(p) = &mut self.pane.pending {
+                    p.stage = Stage::Note(text);
+                }
+            }
+            PaneMsg::PendingDone => {
+                if let Some(Pending { id, stage: Stage::Note(note) }) = self.pane.pending.take() {
+                    if !note.trim().is_empty() {
+                        self.change(Op::Mark(MarkOp::Note { mark: id, note: note.trim().to_owned() }));
+                    }
+                    // Done with: I, O and F start the next.
+                    self.pane.picked = None;
+                }
+            }
             PaneMsg::Loaded(key, slot) => {
                 if self.pane.key.as_deref() != Some(key.as_str()) {
                     return iced::Task::none();
@@ -204,6 +245,54 @@ impl App {
         iced::Task::none()
     }
 
+    /// The roles to choose from: none first, the sheet's eight, the user's.
+    fn role_choices(&self) -> Vec<RoleChoice> {
+        let none = RoleChoice { key: String::new(), name: "— без ролі".to_owned() };
+        let own = self.project.iter().flat_map(|p| p.sheet.roles.iter()).map(|r| RoleChoice { key: r.key.clone(), name: if r.en.is_empty() { r.title.clone() } else { format!("{} / {}", r.title, r.en) } });
+        std::iter::once(none).chain(ROLES.iter().map(|r| RoleChoice { key: r.0.to_owned(), name: r.1.to_owned() })).chain(own).collect()
+    }
+
+    /// A mark just made: its role is asked for at once.
+    fn begin_pending(&mut self, made: Option<String>) {
+        self.pane.picked = made.clone();
+        self.pane.pending = made.map(|id| Pending { id, stage: Stage::Role(0) });
+    }
+
+    /// The new mark's role given (none for the first choice); its note asked
+    /// for next, the field focused.
+    fn pending_role(&mut self, i: usize) -> iced::Task<Message> {
+        let Some(p) = self.pane.pending.clone() else { return iced::Task::none() };
+        let role = self.role_choices().get(i).map(|c| c.key.clone()).filter(|k| !k.is_empty());
+        if role.is_some() {
+            self.change(Op::Mark(MarkOp::Role { mark: p.id.clone(), role }));
+        }
+        self.pane.pending = Some(Pending { id: p.id, stage: Stage::Note(String::new()) });
+        iced::widget::operation::focus(NOTE)
+    }
+
+    /// Esc or Tab before the last Enter: the new mark taken away.
+    pub(super) fn cancel_pending(&mut self) {
+        if let Some(p) = self.pane.pending.take() {
+            self.change(Op::Mark(MarkOp::Remove { mark: p.id }));
+            self.pane.picked = None;
+        }
+    }
+
+    /// Keys while a new mark is being described: ↑ ↓ and Enter choose its
+    /// role (the note's field takes its own keys).
+    pub(super) fn pending_key(&mut self, key: &iced::keyboard::Key) -> iced::Task<Message> {
+        use iced::keyboard::{Key, key::Named};
+        let Some(Pending { stage: Stage::Role(i), id }) = self.pane.pending.clone() else { return iced::Task::none() };
+        let n = self.role_choices().len();
+        match key.as_ref() {
+            Key::Named(Named::ArrowDown) => self.pane.pending = Some(Pending { id, stage: Stage::Role((i + 1).min(n - 1)) }),
+            Key::Named(Named::ArrowUp) => self.pane.pending = Some(Pending { id, stage: Stage::Role(i.saturating_sub(1)) }),
+            Key::Named(Named::Enter) => return self.pending_role(i),
+            _ => {}
+        }
+        iced::Task::none()
+    }
+
     /// The pane's keys: whether `code` was one of them.
     pub(super) fn pane_key(&mut self, code: iced::keyboard::key::Code) -> bool {
         use iced::keyboard::key::Code;
@@ -244,7 +333,8 @@ impl App {
                     }
                     (_, Some(start)) => {
                         self.pane.mark_in = None;
-                        self.pane.picked = self.change(Op::Mark(MarkOp::Add { clip, t: start.min(now), end: Some(start.max(now)), flag: false, role: None, note: String::new() }));
+                        let made = self.change(Op::Mark(MarkOp::Add { clip, t: start.min(now), end: Some(start.max(now)), flag: false, role: None, note: String::new() }));
+                        self.begin_pending(made);
                     }
                     (Some(f), None) if f.kind == MarkKind::Flag && now > f.t => {
                         let add = Op::Mark(MarkOp::Add { clip, t: f.t, end: Some(now), flag: false, role: f.role.clone(), note: f.note.clone() });
@@ -257,7 +347,8 @@ impl App {
             Code::KeyF => {
                 let (Some(now), Some(clip)) = (now, self.pane.key.clone()) else { return true };
                 self.pane.mark_in = None;
-                self.pane.picked = self.change(Op::Mark(MarkOp::Add { clip, t: now, end: None, flag: true, role: None, note: String::new() }));
+                let made = self.change(Op::Mark(MarkOp::Add { clip, t: now, end: None, flag: true, role: None, note: String::new() }));
+                self.begin_pending(made);
             }
             // Page Up / Down: to the mark before or after, picked.
             Code::PageUp | Code::PageDown => {
@@ -279,23 +370,7 @@ impl App {
                     self.change(Op::Mark(MarkOp::Remove { mark }));
                 }
             }
-            _ => {
-                // A role's letter, on the picked segment.
-                let letter = match code {
-                    Code::KeyT => 't',
-                    Code::KeyE => 'e',
-                    Code::KeyB => 'b',
-                    Code::KeyD => 'd',
-                    Code::KeyC => 'c',
-                    Code::KeyA => 'a',
-                    Code::KeyV => 'v',
-                    Code::KeyR => 'r',
-                    _ => return false,
-                };
-                let Some(mark) = self.pane.picked.clone() else { return true };
-                let role = ROLES.iter().find(|r| r.3 == letter).map(|r| r.0.to_owned());
-                self.change(Op::Mark(MarkOp::Role { mark, role }));
-            }
+            _ => return false,
         }
         true
     }
@@ -309,7 +384,7 @@ impl App {
         let room = WIDTH - 24.0;
         match &self.pane.viewer {
             Some(v) => {
-                let h = (room / v.aspect()).min(self.height * 0.45);
+                let h = (room / v.aspect()).min(self.height / self.scale * 0.45);
                 let w = h * v.aspect();
                 let picture: Element<'_, Message> = match v.picture() {
                     Some(p) => iced::widget::shader(p).width(w).height(h).into(),
@@ -367,10 +442,38 @@ impl App {
                 col = col.push(row![role, note, remove].spacing(8).align_y(Alignment::Center));
             }
         }
+        // A new mark being described, below the list, out of its scroll.
+        let pending: Option<Element<'_, Message>> = self.pane.pending.as_ref().map(|p| {
+            let what = self.marks().into_iter().find(|m| m.id.as_deref() == Some(p.id.as_str())).map(|m| match (m.kind, m.end) {
+                (MarkKind::Segment, Some(e)) => format!("New segment {} – {}", clock(m.t), clock(e)),
+                _ => format!("New flag {}", clock(m.t)),
+            });
+            let mut b = column![text(what.unwrap_or_default()).size(14)].spacing(4);
+            match &p.stage {
+                Stage::Role(at) => {
+                    for (i, c) in self.role_choices().into_iter().enumerate() {
+                        let colour = colour(Some(c.key.as_str()).filter(|k| !k.is_empty()));
+                        let bar = container(space()).width(4).height(18).style(move |_| container::background(colour));
+                        b = b.push(
+                            button(row![bar, text(c.name).size(13)].spacing(8).align_y(Alignment::Center))
+                                .width(Length::Fill)
+                                .padding([2, 6])
+                                .style(if i == *at { button::primary } else { button::text })
+                                .on_press(to(PaneMsg::PendingRole(i))),
+                        );
+                    }
+                }
+                Stage::Note(note) => {
+                    b = b.push(text_input("what happens here", note).id(NOTE).size(14).on_input(move |t| to(PaneMsg::PendingNote(t))).on_submit(to(PaneMsg::PendingDone)));
+                }
+            }
+            container(b.padding(10)).style(container::bordered_box).into()
+        });
         // Outlined while the keys go to it (Tab).
         let focused = self.pane.focused;
+        let body = column![scrollable(col.padding(12)).height(Length::Fill)].push(pending).spacing(6);
         Some(
-            container(scrollable(col.padding(12)))
+            container(body)
                 .width(WIDTH)
                 .height(Length::Fill)
                 .style(move |t: &Theme| {

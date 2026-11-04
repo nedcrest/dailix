@@ -26,6 +26,7 @@ pub fn run(open: Option<PathBuf>) -> iced::Result {
     iced::application(move || App::new(open.clone()), App::update, App::view)
         .title(App::title)
         .subscription(App::subscription)
+        .scale_factor(|app: &App| app.scale)
         .theme(|_: &App| Theme::KanagawaDragon)
         .window(iced::window::Settings {
             size: iced::Size::new(1500.0, 920.0),
@@ -59,6 +60,8 @@ struct App {
     pane: pane::Pane,
     /// The window's height, to keep the player's picture to part of it.
     height: f32,
+    /// The interface's size (Ctrl+= / Ctrl+−), remembered.
+    scale: f32,
 }
 
 #[derive(Debug, Clone)]
@@ -74,9 +77,12 @@ enum Message {
     Posters(Vec<PathBuf>),
     /// A clip picked by a click.
     Select(String),
-    /// A key pressed outside a text field: the key as typed, the key's
-    /// place on the keyboard (so letters work in any layout), the modifiers.
-    Key(iced::keyboard::Key, iced::keyboard::key::Physical, iced::keyboard::Modifiers),
+    /// A key pressed: the key as typed, its place on the keyboard (so
+    /// letters work in any layout), the modifiers, and whether a widget
+    /// (a text field) took it already.
+    Key(iced::keyboard::Key, iced::keyboard::key::Physical, iced::keyboard::Modifiers, bool),
+    /// The text's size, a step bigger (1), smaller (-1), or as it was (0).
+    Scale(i32),
     /// Where the picked tile and the list are, to bring it into view.
     Placed(Placement),
     /// The player at the right.
@@ -163,7 +169,7 @@ fn clock(t: f64) -> String {
 impl App {
     fn new(open: Option<PathBuf>) -> (App, Task<Message>) {
         let settings = Settings::load();
-        let mut app = App { project: None, error: None, making: HashSet::new(), drafts: HashMap::new(), dirty: HashSet::new(), selected: None, pane: pane::Pane::default(), height: 920.0, settings };
+        let mut app = App { project: None, error: None, making: HashSet::new(), drafts: HashMap::new(), dirty: HashSet::new(), selected: None, pane: pane::Pane::default(), height: 920.0, scale: settings.scale.unwrap_or(1.0), settings };
         let root = open.or_else(|| app.settings.last.clone());
         let task = match root {
             Some(root) => app.load(root),
@@ -235,8 +241,10 @@ impl App {
     }
 
     fn subscription(&self) -> iced::Subscription<Message> {
-        let keys = iced::keyboard::listen().filter_map(|e| match e {
-            iced::keyboard::Event::KeyPressed { key, physical_key, modifiers, .. } => Some(Message::Key(key, physical_key, modifiers)),
+        // Every key, with whether a field took it: Esc in the new mark's
+        // note field must still cancel it, though the field takes Esc.
+        let keys = iced::event::listen_with(|e, status, _| match e {
+            iced::Event::Keyboard(iced::keyboard::Event::KeyPressed { key, physical_key, modifiers, .. }) => Some(Message::Key(key, physical_key, modifiers, status == iced::event::Status::Captured)),
             _ => None,
         });
         let size = iced::window::resize_events().map(|(_, s)| Message::Resized(s));
@@ -296,9 +304,43 @@ impl App {
                     return iced::widget::operation::scroll_to(LIST, iced::widget::scrollable::AbsoluteOffset { x: 0.0, y: y.max(0.0) });
                 }
             }
-            Message::Key(key, physical, mods) => {
+            Message::Scale(step) => {
+                self.scale = match step {
+                    0 => 1.0,
+                    s => (self.scale + 0.1 * s as f32).clamp(0.7, 2.0),
+                };
+                self.settings.scale = Some(self.scale);
+                let _ = self.settings.save();
+            }
+            Message::Key(key, physical, mods, taken) => {
                 use iced::keyboard::key::{Code, Named, Physical};
                 use iced::keyboard::Key;
+                // A new mark being described: Esc and Tab take it away, even
+                // from its note field; ↑ ↓ Enter choose its role; nothing else.
+                if self.pane.pending.is_some() {
+                    match key.as_ref() {
+                        Key::Named(Named::Escape) => self.cancel_pending(),
+                        Key::Named(Named::Tab) => {
+                            self.cancel_pending();
+                            self.pane.focused = false;
+                        }
+                        _ if !taken => return self.pending_key(&key),
+                        _ => {}
+                    }
+                    return Task::none();
+                }
+                if taken {
+                    return Task::none();
+                }
+                // The text's size: Ctrl and = / − / 0.
+                if mods.command() {
+                    match physical {
+                        Physical::Code(Code::Equal | Code::NumpadAdd) => return self.update(Message::Scale(1)),
+                        Physical::Code(Code::Minus | Code::NumpadSubtract) => return self.update(Message::Scale(-1)),
+                        Physical::Code(Code::Digit0 | Code::Numpad0) => return self.update(Message::Scale(0)),
+                        _ => {}
+                    }
+                }
                 if mods.command() || mods.alt() {
                     return Task::none();
                 }
@@ -395,11 +437,13 @@ impl App {
 
     fn view(&self) -> Element<'_, Message> {
         let open = button(text("Open…")).on_press(Message::Open);
+        let size = |label: &'static str, step: i32, hint: &'static str| tooltip(button(text(label).size(13)).padding([4, 10]).style(button::secondary).on_press(Message::Scale(step)), text(hint), tooltip::Position::Bottom);
+        let sizes = row![size("A−", -1, "Smaller text (Ctrl+−)"), text(format!("{:.0}%", self.scale * 100.0)).size(12), size("A+", 1, "Bigger text (Ctrl+=)")].spacing(6).align_y(Alignment::Center);
         let mut top = row![text(self.title()).size(20), space().width(Length::Fill)].spacing(12).align_y(Alignment::Center);
         if !self.making.is_empty() {
             top = top.push(text(format!("making posters: {} left", self.making.len())).size(13));
         }
-        let top = top.push(open);
+        let top = top.push(sizes).push(open);
         let mut page = column![container(top).padding([10, 16])];
         if let Some(e) = &self.error {
             page = page.push(container(text(e.clone()).size(13).style(text::danger)).padding([0, 16]));
