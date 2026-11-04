@@ -1,6 +1,8 @@
 //! Dailix: bringing footage in and choosing it. Only the command line for
 //! now; the window comes next (`docs/CONTEXT.md`).
 
+mod app;
+mod footage;
 mod import;
 mod install;
 mod settings;
@@ -13,12 +15,15 @@ use std::process::ExitCode;
 #[derive(Parser)]
 #[command(name = "dailix", version, about = "Bringing footage in and choosing it")]
 struct Cli {
+    /// Without a command: the window, on the project last opened.
     #[command(subcommand)]
-    command: Command,
+    command: Option<Command>,
 }
 
 #[derive(Subcommand)]
 enum Command {
+    /// The window, on the project at this folder.
+    Open { project: PathBuf },
     /// The contact sheet's marking (a project's `dailix/sheet.json`).
     #[command(subcommand)]
     Sheet(SheetCmd),
@@ -77,7 +82,23 @@ enum SchemaOf {
 }
 
 fn main() -> ExitCode {
-    match run(Cli::parse()) {
+    let cli = Cli::parse();
+    // The window, unless a command was given.
+    let open = match &cli.command {
+        None => Some(None),
+        Some(Command::Open { project }) => Some(Some(project.clone())),
+        _ => None,
+    };
+    if let Some(project) = open {
+        return match app::run(project) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(e) => {
+                eprintln!("dailix: {e}");
+                ExitCode::FAILURE
+            }
+        };
+    }
+    match run(cli) {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
             eprintln!("dailix: {e}");
@@ -87,7 +108,8 @@ fn main() -> ExitCode {
 }
 
 fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
-    let cmd = match cli.command {
+    let cmd = match cli.command.expect("the window is opened in main") {
+        Command::Open { .. } => unreachable!("the window is opened in main"),
         Command::Sheet(cmd) => cmd,
         Command::Places { tmp, projects, sources } => {
             let mut s = settings::Settings::load();

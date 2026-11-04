@@ -9,8 +9,8 @@
 //! the web sheet's thumbnails and browser previews, finished exports, old
 //! edits (they name the old paths) and the old trash.
 //!
-//! A copy goes to a hidden name and is renamed when whole, and is checked
-//! by size; a file already there with the same size is skipped, so an
+//! A copy goes to a hidden name, is checked by size and synced to the disk,
+//! then renamed; a file already there with the same size is skipped, so an
 //! import stopped half way just runs again.
 
 use dailix_sheet::{Doc, Layout, Store};
@@ -117,6 +117,11 @@ fn copy(c: &Copy) -> std::io::Result<bool> {
         if n != c.size {
             return Err(std::io::Error::other(format!("{}: copied {n} bytes of {}", c.from.display(), c.size)));
         }
+        // On the disk before it gets its name: a copy renamed but not yet
+        // written out, cut off by a crash, kept its size and lost its
+        // content, and a rerun (which checks sizes) would have kept it
+        // (2026-11-04, the machine froze mid-import).
+        std::fs::File::open(&part)?.sync_all()?;
         std::fs::rename(&part, &c.to)
     });
     if result.is_err() {
