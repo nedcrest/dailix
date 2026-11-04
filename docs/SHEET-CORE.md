@@ -1,7 +1,8 @@
 # The contact sheet's core: one way to read and change `notes.json`
 
-Design for the user's approval before code (2026-11-04), as Omnix's
-`OPS-API.md` was for projects. The user: start the move to Rust with the
+Designed and approved 2026-11-04 and built the same day (steps 1-8
+below), as Omnix's `OPS-API.md` was for projects. The reference for the
+core: the format, the model, the ops, the store, the CLI. The user: start the move to Rust with the
 contact sheet's core; "a core API for the contact sheet too, so changes
 are easier in both places at once".
 
@@ -193,11 +194,11 @@ dependency becomes a git or crates.io one.
    mark: Kos's day reads at a glance), `schema [ops|sheet]`. Tests: the
    text view, the schemas, and the binary end to end (ops applied,
    described, a refused run writing nothing).
-7. **Omnix on the core.** `notes.rs` replaced; the bin player's I / O,
-   role, note and delete as ops by id; its 176 tests and the hand checks
-   still pass. The web sheet's server untouched.
-8. **Docs.** This page becomes the core's reference; both repos'
-   contexts and the roadmap updated.
+7. **Omnix on the core** — done 2026-11-04 (Omnix `98f2795`). Its
+   `notes.rs` keeps only Omnix's side (where a project's sheet is, a clip
+   file's key) and goes through `Store` and ops by id; 176 + 10 tests
+   pass. Omnix depends on `../rushix/crates/sheet` by path.
+8. **Docs** — done: this page, both contexts, the roadmap.
 
 Then the studio's window (the next plan), on this core.
 
