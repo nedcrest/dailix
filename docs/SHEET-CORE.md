@@ -156,8 +156,14 @@ dependency becomes a git or crates.io one.
    sheet read and written byte for byte; every shape of mark; unknown
    fields at each level kept. A one-off check on a scratch copy of Kos's
    file (never committed): identical after a round trip.
-2. **Ids.** Given on load, kept, unique; the web sheet's saves keep them
-   (checked with footage-agent's page against a scratch copy).
+2. **Ids** — done 2026-11-04. `Doc::settle_ids`: `m<n>` past the highest,
+   in the file's order (the same file, the same ids), the later of two
+   sharing one renumbered, the key last in the mark so nothing else
+   moves. An id counts only once written: a program settles and saves
+   before addressing a mark (the store, step 5). The web sheet only
+   pushes new marks and splices deleted ones, never rebuilds one, so it
+   keeps the field (read in `report.html`). On a scratch copy of Kos's
+   sheet: 86 of 86 marks given ids, nothing else changed.
 3. **Operations and `check`.** Each op with its tests; `check` after
    every op.
 4. **Undo, and properties.** `Edit` with `begin` / `commit`; proptest:
