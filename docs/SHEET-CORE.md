@@ -179,8 +179,14 @@ dependency becomes a git or crates.io one.
    Proptest: random runs of up to 40 ops (bad roles, ratings and ids
    among them) keep `check` empty, read back from their own text, and
    undo and redo walk every state; 5000 runs pass.
-5. **`Store`.** Fresh read, apply, check, atomic write, `.bak`; a test of
-   two writers (an op applied over a file changed meanwhile).
+5. **`Store`** — done 2026-11-04 (`store.rs`). No copy held between
+   writes: each reads the file afresh, gives ids to marks another writer
+   added, applies the ops (all or none), writes whole (beside, synced,
+   renamed over) after copying the last version to `notes.json.bak`.
+   `read` writes first if it gave ids. Tests: ids written on read; an op
+   by id lands on its mark though another writer saved the whole file
+   with a new mark before it; a refused op writes nothing and leaves no
+   temporary file.
 6. **CLI and schema.** `apply`, `describe`, `schema`; tests of each.
 7. **Omnix on the core.** `notes.rs` replaced; the bin player's I / O,
    role, note and delete as ops by id; its 176 tests and the hand checks
