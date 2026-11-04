@@ -151,7 +151,7 @@ dependency becomes a git or crates.io one.
 
 ## The plan, a local commit per step
 
-1. **Workspace and model.** `crates/sheet` with the typed model, the
+1. **Workspace and model** — done 2026-11-04 (`4162915`). `crates/sheet` with the typed model, the
    unknown kept, `Time`'s integers, load and save. Tests: a synthetic
    sheet read and written byte for byte; every shape of mark; unknown
    fields at each level kept. A one-off check on a scratch copy of Kos's
