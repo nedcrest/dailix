@@ -214,8 +214,14 @@ impl App {
     /// Applies `op` to the sheet on disk and keeps the result; the id of
     /// what it made, if it made something.
     fn change(&mut self, op: Op) -> Option<String> {
+        self.change_all(vec![op])
+    }
+
+    /// Applies `ops`, all or none, as one write; the id of the first thing
+    /// made, if any.
+    fn change_all(&mut self, ops: Vec<Op>) -> Option<String> {
         let p = self.project.as_mut()?;
-        match p.store.apply(&[op]).map_err(|e| e.to_string()).and_then(|(doc, out)| Ok((doc.sheet().map_err(|e| e.to_string())?, out))) {
+        match p.store.apply(&ops).map_err(|e| e.to_string()).and_then(|(doc, out)| Ok((doc.sheet().map_err(|e| e.to_string())?, out))) {
             Ok((sheet, out)) => {
                 p.sheet = sheet;
                 self.error = None;
@@ -294,6 +300,24 @@ impl App {
                 use iced::keyboard::key::{Code, Named, Physical};
                 use iced::keyboard::Key;
                 if mods.command() || mods.alt() {
+                    return Task::none();
+                }
+                // Tab: the keys go to the player, or back to the tiles.
+                if matches!(key.as_ref(), Key::Named(Named::Tab)) && self.pane.key.is_some() {
+                    self.pane.focused = !self.pane.focused;
+                    return Task::none();
+                }
+                // ← → in the player: a frame, with Shift a second, as Omnix.
+                if self.pane.focused
+                    && let Key::Named(dir @ (Named::ArrowLeft | Named::ArrowRight)) = key.as_ref()
+                    && let Some(v) = &mut self.pane.viewer
+                {
+                    let sign = if dir == Named::ArrowLeft { -1.0 } else { 1.0 };
+                    if mods.shift() {
+                        v.jump((v.position() + sign).clamp(0.0, v.duration()));
+                    } else {
+                        v.step(sign);
+                    }
                     return Task::none();
                 }
                 // The player's keys first, while a clip is open in it.
