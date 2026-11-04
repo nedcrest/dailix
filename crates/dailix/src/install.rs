@@ -1,9 +1,9 @@
-//! `rushix install`: the icon and a desktop entry, in the menu and on the
+//! `dailix install`: the icon and a desktop entry, in the menu and on the
 //! desktop, starting this very binary. Linux only for now (freedesktop's
 //! icon theme and `.desktop` files); elsewhere it says so.
 
 /// The icon: a film strip (rushes), its middle frame picked.
-pub const ICON: &str = include_str!("../assets/rushix.svg");
+pub const ICON: &str = include_str!("../assets/dailix.svg");
 
 #[cfg(target_os = "linux")]
 pub fn install() -> Result<Vec<std::path::PathBuf>, Box<dyn std::error::Error>> {
@@ -15,19 +15,19 @@ pub fn install() -> Result<Vec<std::path::PathBuf>, Box<dyn std::error::Error>> 
 
     let icons = data.join("icons/hicolor/scalable/apps");
     std::fs::create_dir_all(&icons)?;
-    std::fs::write(icons.join("rushix.svg"), ICON)?;
-    written.push(icons.join("rushix.svg"));
+    std::fs::write(icons.join("dailix.svg"), ICON)?;
+    written.push(icons.join("dailix.svg"));
 
     // StartupWMClass: the window's class (its application id), so the
     // dock shows this entry's icon for the open window.
     let entry = format!(
-        "[Desktop Entry]\nType=Application\nName=Rushix\nComment=Відзнятий матеріал: переглянути й відібрати\nExec=\"{}\"\nIcon=rushix\nTerminal=false\nCategories=AudioVideo;Video;\nStartupWMClass=rushix\n",
+        "[Desktop Entry]\nType=Application\nName=Dailix\nComment=Відзнятий матеріал: переглянути й відібрати\nExec=\"{}\"\nIcon=dailix\nTerminal=false\nCategories=AudioVideo;Video;\nStartupWMClass=dailix\n",
         exe.display()
     );
     let desktop = std::process::Command::new("xdg-user-dir").arg("DESKTOP").output().ok().and_then(|o| String::from_utf8(o.stdout).ok()).map(|s| PathBuf::from(s.trim())).filter(|p| p.is_dir()).unwrap_or_else(|| home.join("Desktop"));
     for dir in [data.join("applications"), desktop] {
         std::fs::create_dir_all(&dir)?;
-        let file = dir.join("rushix.desktop");
+        let file = dir.join("dailix.desktop");
         std::fs::write(&file, &entry)?;
         // GNOME launches a desktop file only once it's executable and
         // marked trusted (the system's gio: a Homebrew one lacks gvfs).
@@ -43,5 +43,5 @@ pub fn install() -> Result<Vec<std::path::PathBuf>, Box<dyn std::error::Error>> 
 
 #[cfg(not(target_os = "linux"))]
 pub fn install() -> Result<Vec<std::path::PathBuf>, Box<dyn std::error::Error>> {
-    Err("rushix install makes a Linux desktop entry; on this system, pin the binary yourself".into())
+    Err("dailix install makes a Linux desktop entry; on this system, pin the binary yourself".into())
 }

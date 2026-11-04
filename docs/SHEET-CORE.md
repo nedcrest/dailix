@@ -76,7 +76,7 @@ order, so a file would change for nothing.
 - Tests: a made-up sheet with every easy-to-lose thing, written by
   Python's own call, read and written back byte for byte; the same by
   hand on a scratch copy of Kos's sheet (an ignored test given the path
-  in `RUSHIX_SHEET`): identical.
+  in `DAILIX_SHEET`): identical.
 
 ### 2. Ids for marks
 
@@ -134,19 +134,19 @@ pub enum RoleOp { Add { title: String, en: String, hint: String } }   // key mad
 ### 6. CLI, schema, a text view
 
 The studio's binary, CLI-only until it has a window:
-- `rushix sheet apply <notes.json> <ops.json>`: the ops, checked,
+- `dailix sheet apply <notes.json> <ops.json>`: the ops, checked,
   written; one line per outcome;
-- `rushix sheet describe <notes.json> [--day D]`: a line per mark
+- `dailix sheet describe <notes.json> [--day D]`: a line per mark
   (day, clip, span, role, note) and per rated clip: what the AI reads in
   place of the JSON (brainstorm D12);
-- `rushix sheet schema`: the JSON Schema of the file and of the
+- `dailix sheet schema`: the JSON Schema of the file and of the
   ops (`schemars`, as Omnix's `ops-schema`).
 
 ### 7. Where it lives
 
 A Cargo workspace in this repo: `crates/sheet` (the core, a library),
 the studio binary beside it. Omnix depends on the core by path
-(`../rushix/crates/sheet`) and its `notes.rs` goes away. A path
+(`../dailix/crates/sheet`) and its `notes.rs` goes away. A path
 across two repos builds locally; if either is ever published, the
 dependency becomes a git or crates.io one.
 
@@ -188,7 +188,7 @@ dependency becomes a git or crates.io one.
    by id lands on its mark though another writer saved the whole file
    with a new mark before it; a refused op writes nothing and leaves no
    temporary file.
-6. **CLI and schema** — done 2026-11-04 (`crates/rushix`). `rushix sheet
+6. **CLI and schema** — done 2026-11-04 (`crates/dailix`). `dailix sheet
    apply <notes> <ops|->` (one op or a list, all or none, a line per
    outcome), `check`, `describe [--day]` (a line per day, rated clip and
    mark: Kos's day reads at a glance), `schema [ops|sheet]`. Tests: the
@@ -197,14 +197,14 @@ dependency becomes a git or crates.io one.
 7. **Omnix on the core** — done 2026-11-04 (Omnix `98f2795`). Its
    `notes.rs` keeps only Omnix's side (where a project's sheet is, a clip
    file's key) and goes through `Store` and ops by id; 176 + 10 tests
-   pass. Omnix depends on `../rushix/crates/sheet` by path.
+   pass. Omnix depends on `../dailix/crates/sheet` by path.
 8. **Docs** — done: this page, both contexts, the roadmap.
 
 Then the studio's window (the next plan), on this core.
 
 ## Decided (user, 2026-11-04)
 
-1. **The name:** Rushix; the binary `rushix`, the core `rushix-sheet`
+1. **The name:** Dailix; the binary `dailix`, the core `dailix-sheet`
    (`crates/sheet`).
 2. **Ids in the real sheet:** yes, written.
 3. **Time precision:** what the core is given, to a thousandth; the web

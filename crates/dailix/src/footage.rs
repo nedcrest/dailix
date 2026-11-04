@@ -93,7 +93,7 @@ mod tests {
 
     #[test]
     fn days_and_clips_come_from_the_sidecars_with_their_thumbnails() {
-        let root = std::env::temp_dir().join(format!("rushix-footage-{}", std::process::id()));
+        let root = std::env::temp_dir().join(format!("dailix-footage-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         let sidecar = |day: &str, src: &str, d: f64| {
             let dir = root.join("analysis").join(day);

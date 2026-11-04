@@ -1,13 +1,13 @@
-//! Rushix: bringing footage in and choosing it. Only the command line for
+//! Dailix: bringing footage in and choosing it. Only the command line for
 //! now; the window comes next (`docs/CONTEXT.md`).
 
 use clap::{Parser, Subcommand};
-use rushix_sheet::{Doc, MarkKind, Op, Rating, Sheet, Store};
+use dailix_sheet::{Doc, MarkKind, Op, Rating, Sheet, Store};
 use std::path::PathBuf;
 use std::process::ExitCode;
 
 #[derive(Parser)]
-#[command(name = "rushix", version, about = "Bringing footage in and choosing it")]
+#[command(name = "dailix", version, about = "Bringing footage in and choosing it")]
 struct Cli {
     #[command(subcommand)]
     command: Command,
@@ -53,7 +53,7 @@ fn main() -> ExitCode {
     match run(Cli::parse()) {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
-            eprintln!("rushix: {e}");
+            eprintln!("dailix: {e}");
             ExitCode::FAILURE
         }
     }
