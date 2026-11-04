@@ -4,9 +4,9 @@
 //! change to the marking goes through the sheet's core, by the mark's id.
 //!
 //! Keys (the window's, read by their place so any layout works): Space
-//! plays; I and O set the picked segment's ends, or make a new one from
-//! an in point; a role's letter gives the picked segment that role; Delete
-//! removes it.
+//! plays; I and O make a segment (or, inside the picked one, move its
+//! ends); F sets a flag; Page Up / Down go to the mark before or after; a
+//! role's letter gives the picked mark that role; Delete removes it.
 
 use super::{App, Message};
 use dailix_sheet::{MarkKind, MarkOp, Op};
@@ -48,8 +48,8 @@ impl std::fmt::Debug for Slot {
     }
 }
 
-/// The pane's state: the clip in the player, the segment picked, the flag
-/// I left waiting for its O, the picked segment's note as typed, and
+/// The pane's state: the clip in the player, the segment picked, an in
+/// point (I) waiting for its O, the picked segment's note as typed, and
 /// whether the keys go to the player (Tab) rather than the tiles.
 #[derive(Default)]
 pub struct Pane {
@@ -57,7 +57,7 @@ pub struct Pane {
     pub viewer: Option<Viewer>,
     pub loading: bool,
     pub picked: Option<String>,
-    pub open_flag: Option<String>,
+    pub mark_in: Option<f64>,
     pub note: Option<String>,
     pub focused: bool,
 }
@@ -176,7 +176,7 @@ impl App {
             PaneMsg::Pick(id) => {
                 self.save_note();
                 self.pane.picked = id.clone();
-                self.pane.open_flag = None;
+                self.pane.mark_in = None;
                 if let Some(start) = id.and_then(|id| self.marks().into_iter().find(|m| m.id.as_deref() == Some(id.as_str()))).map(|m| m.t)
                     && let Some(v) = &mut self.pane.viewer
                 {
@@ -215,11 +215,10 @@ impl App {
                     v.toggle();
                 }
             }
-            // I inside the picked segment moves its start. Anywhere else it
-            // sets a flag here, which O then makes a segment; one with no
-            // O stays a flag. Never stretches a segment the playhead isn't
-            // in (it did: one finished further on grew back to an I set
-            // earlier in the clip).
+            // I inside the picked segment moves its start; anywhere else it
+            // sets an in point for O. Never stretches a segment the
+            // playhead isn't in (it did: one finished further on grew back
+            // to an I set earlier in the clip).
             Code::KeyI => {
                 let Some(now) = now else { return true };
                 match picked {
@@ -227,32 +226,52 @@ impl App {
                         self.change(Op::Mark(MarkOp::Move { mark: m.id.clone().unwrap_or_default(), t: now, end: m.end }));
                     }
                     _ => {
-                        let Some(clip) = self.pane.key.clone() else { return true };
-                        let made = self.change(Op::Mark(MarkOp::Add { clip, t: now, end: None, flag: true, role: None, note: String::new() }));
-                        self.pane.picked = made.clone();
-                        self.pane.open_flag = made;
+                        self.pane.picked = None;
+                        self.pane.mark_in = Some(now);
                     }
                 }
             }
-            // O inside the picked segment moves its end; after an I (or on
-            // a flag picked), the flag becomes a segment to here, its role
-            // and note kept. Without either, nothing: there's no start.
+            // O inside the picked segment moves its end; after an I, a
+            // segment from there; on a flag picked, the flag becomes a
+            // segment to here (its role and note kept). Else nothing: no
+            // start.
             Code::KeyO => {
                 let Some(now) = now else { return true };
-                let flag = self.pane.open_flag.clone().or_else(|| picked.as_ref().filter(|m| m.kind == MarkKind::Flag).and_then(|m| m.id.clone()));
-                let flag = flag.and_then(|id| self.marks().into_iter().find(|m| m.id.as_deref() == Some(id.as_str())));
-                match (picked, flag) {
+                let Some(clip) = self.pane.key.clone() else { return true };
+                match (picked, self.pane.mark_in) {
                     (Some(m), _) if m.kind == MarkKind::Segment && m.end.is_some_and(|e| now > m.t && now <= e) => {
                         self.change(Op::Mark(MarkOp::Move { mark: m.id.clone().unwrap_or_default(), t: m.t, end: Some(now) }));
                     }
-                    (_, Some(f)) if now > f.t => {
-                        let Some(clip) = self.pane.key.clone() else { return true };
+                    (_, Some(start)) => {
+                        self.pane.mark_in = None;
+                        self.pane.picked = self.change(Op::Mark(MarkOp::Add { clip, t: start.min(now), end: Some(start.max(now)), flag: false, role: None, note: String::new() }));
+                    }
+                    (Some(f), None) if f.kind == MarkKind::Flag && now > f.t => {
                         let add = Op::Mark(MarkOp::Add { clip, t: f.t, end: Some(now), flag: false, role: f.role.clone(), note: f.note.clone() });
-                        let made = self.change_all(vec![Op::Mark(MarkOp::Remove { mark: f.id.clone().unwrap_or_default() }), add]);
-                        self.pane.picked = made;
-                        self.pane.open_flag = None;
+                        self.pane.picked = self.change_all(vec![Op::Mark(MarkOp::Remove { mark: f.id.clone().unwrap_or_default() }), add]);
                     }
                     _ => self.error = Some("No start for a segment: set one with I first".to_owned()),
+                }
+            }
+            // F: a flag here, a note to self (a meme to find, a sound).
+            Code::KeyF => {
+                let (Some(now), Some(clip)) = (now, self.pane.key.clone()) else { return true };
+                self.pane.mark_in = None;
+                self.pane.picked = self.change(Op::Mark(MarkOp::Add { clip, t: now, end: None, flag: true, role: None, note: String::new() }));
+            }
+            // Page Up / Down: to the mark before or after, picked.
+            Code::PageUp | Code::PageDown => {
+                let mut marks = self.marks();
+                marks.sort_by(|a, b| a.t.total_cmp(&b.t));
+                let from = picked.map_or(now.unwrap_or(0.0), |m| m.t);
+                let next = if code == Code::PageDown { marks.into_iter().find(|m| m.t > from + 1e-3) } else { marks.into_iter().rev().find(|m| m.t < from - 1e-3) };
+                if let Some(m) = next {
+                    self.save_note();
+                    self.pane.picked = m.id.clone();
+                    self.pane.mark_in = None;
+                    if let Some(v) = &mut self.pane.viewer {
+                        v.jump(m.t);
+                    }
                 }
             }
             Code::Delete | Code::Backspace => {
@@ -303,6 +322,7 @@ impl App {
                     length: v.duration(),
                     marks: marks.iter().map(|m| (m.id.clone().unwrap_or_default(), m.t, if m.kind == MarkKind::Segment { m.end } else { None }, colour(m.role.as_deref()))).collect(),
                     picked: self.pane.picked.clone(),
+                    mark_in: self.pane.mark_in,
                 };
                 col = col.push(canvas::Canvas::new(strip).width(Length::Fill).height(30));
                 col = col.push(
@@ -373,6 +393,8 @@ pub struct Strip {
     /// Id, start, end (none for a point or a flag), colour.
     pub marks: Vec<(String, f64, Option<f64>, Color)>,
     pub picked: Option<String>,
+    /// An in point (I) waiting for its O, drawn as a little flag.
+    pub mark_in: Option<f64>,
 }
 
 /// The band's height, and how near a point a press picks it.
@@ -432,6 +454,18 @@ impl canvas::Program<Message> for Strip {
             if picked {
                 frame.fill(&Path::rectangle(Point::new(x0, BAND), Size::new((x1 - x0).max(3.0), h - BAND)), Color { a: 0.25, ..*c });
             }
+        }
+        if let Some(t) = self.mark_in {
+            let x = px(t);
+            frame.fill(
+                &Path::new(|b| {
+                    b.move_to(Point::new(x, 0.0));
+                    b.line_to(Point::new(x + 7.0, 0.0));
+                    b.line_to(Point::new(x, BAND));
+                    b.close();
+                }),
+                palette.primary.strong.color,
+            );
         }
         let bar = (h - BAND) * 0.4;
         let top = BAND + (h - BAND - bar) / 2.0;
