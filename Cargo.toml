@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/sheet"]
+members = ["crates/sheet", "crates/rushix"]
 resolver = "3"
 
 [workspace.package]
@@ -11,3 +11,5 @@ serde = { version = "1.0.229", features = ["derive"] }
 # preserve_order: a file read and written back keeps its keys' order.
 serde_json = { version = "1.0.151", features = ["preserve_order"] }
 indexmap = { version = "2.14.2", features = ["serde"] }
+schemars = { version = "1.2.3", features = ["preserve_order", "indexmap2"] }
+clap = { version = "4.6.7", features = ["derive"] }

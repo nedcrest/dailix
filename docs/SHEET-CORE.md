@@ -187,7 +187,12 @@ dependency becomes a git or crates.io one.
    by id lands on its mark though another writer saved the whole file
    with a new mark before it; a refused op writes nothing and leaves no
    temporary file.
-6. **CLI and schema.** `apply`, `describe`, `schema`; tests of each.
+6. **CLI and schema** — done 2026-11-04 (`crates/rushix`). `rushix sheet
+   apply <notes> <ops|->` (one op or a list, all or none, a line per
+   outcome), `check`, `describe [--day]` (a line per day, rated clip and
+   mark: Kos's day reads at a glance), `schema [ops|sheet]`. Tests: the
+   text view, the schemas, and the binary end to end (ops applied,
+   described, a refused run writing nothing).
 7. **Omnix on the core.** `notes.rs` replaced; the bin player's I / O,
    role, note and delete as ops by id; its 176 tests and the hand checks
    still pass. The web sheet's server untouched.

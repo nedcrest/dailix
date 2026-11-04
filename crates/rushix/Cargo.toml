@@ -1,0 +1,12 @@
+[package]
+name = "rushix"
+version = "0.1.0"
+description = "Bringing footage in and choosing it: the contact sheet, then the archive and an Omnix project"
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+rushix-sheet = { path = "../sheet" }
+clap.workspace = true
+serde_json.workspace = true
+schemars.workspace = true
