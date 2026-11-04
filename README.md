@@ -7,3 +7,7 @@ way Omnix (`../omnix-360-studio`) is; replaces footage-agent's Python
 web contact sheet step by step.
 
 Nothing is built yet. Start with `docs/CONTEXT.md`.
+
+## Licence
+
+MIT OR Apache-2.0, at your option (`LICENSE-MIT`, `LICENSE-APACHE`).
