@@ -22,6 +22,7 @@ const POSTER_THREADS: usize = 4;
 pub fn run(open: Option<PathBuf>) -> iced::Result {
     iced::application(move || App::new(open.clone()), App::update, App::view)
         .title(App::title)
+        .subscription(App::subscription)
         .theme(|_: &App| Theme::KanagawaDragon)
         .window(iced::window::Settings {
             size: iced::Size::new(1500.0, 920.0),
@@ -49,6 +50,8 @@ struct App {
     /// A day's story as being typed, till it's saved.
     drafts: HashMap<String, text_editor::Content>,
     dirty: HashSet<String>,
+    /// The clip picked (its key): what the keys rate.
+    selected: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -62,6 +65,55 @@ enum Message {
     DaySave(String),
     /// Posters made (or not): shown as they come.
     Posters(Vec<PathBuf>),
+    /// A clip picked by a click.
+    Select(String),
+    /// A key pressed outside a text field: the key as typed, the key's
+    /// place on the keyboard (so letters work in any layout), the modifiers.
+    Key(iced::keyboard::Key, iced::keyboard::key::Physical, iced::keyboard::Modifiers),
+    /// Where the picked tile and the list are, to bring it into view.
+    Placed(Placement),
+}
+
+/// The tiles' list: its id, for scrolling it.
+const LIST: &str = "clips";
+
+/// The list's viewport and content, how far it's scrolled, and the picked
+/// tile's bounds (content coordinates, as laid out unscrolled).
+#[derive(Debug, Clone, Copy)]
+struct Placement {
+    view: iced::Rectangle,
+    content: iced::Rectangle,
+    scrolled: iced::Vector,
+    tile: iced::Rectangle,
+}
+
+/// Finds the list and the tile with id `tile` in the window's widgets.
+struct Find {
+    tile: iced::widget::Id,
+    list: Option<(iced::Rectangle, iced::Rectangle, iced::Vector)>,
+    found: Option<iced::Rectangle>,
+}
+
+impl iced::advanced::widget::Operation<Placement> for Find {
+    fn traverse(&mut self, operate: &mut dyn FnMut(&mut dyn iced::advanced::widget::Operation<Placement>)) {
+        operate(self);
+    }
+    fn scrollable(&mut self, id: Option<&iced::widget::Id>, bounds: iced::Rectangle, content: iced::Rectangle, translation: iced::Vector, _: &mut dyn iced::advanced::widget::operation::Scrollable) {
+        if id == Some(&iced::widget::Id::new(LIST)) {
+            self.list = Some((bounds, content, translation));
+        }
+    }
+    fn container(&mut self, id: Option<&iced::widget::Id>, bounds: iced::Rectangle) {
+        if id == Some(&self.tile) {
+            self.found = Some(bounds);
+        }
+    }
+    fn finish(&self) -> iced::advanced::widget::operation::Outcome<Placement> {
+        match (self.list, self.found) {
+            (Some((view, content, scrolled)), Some(tile)) => iced::advanced::widget::operation::Outcome::Some(Placement { view, content, scrolled, tile }),
+            _ => iced::advanced::widget::operation::Outcome::None,
+        }
+    }
 }
 
 /// Runs `f` on a thread of its own: work that blocks (ffmpeg) without
@@ -101,7 +153,7 @@ fn clock(t: f64) -> String {
 impl App {
     fn new(open: Option<PathBuf>) -> (App, Task<Message>) {
         let settings = Settings::load();
-        let mut app = App { project: None, error: None, making: HashSet::new(), drafts: HashMap::new(), dirty: HashSet::new(), settings };
+        let mut app = App { project: None, error: None, making: HashSet::new(), drafts: HashMap::new(), dirty: HashSet::new(), selected: None, settings };
         let root = open.or_else(|| app.settings.last.clone());
         let task = match root {
             Some(root) => app.load(root),
@@ -161,8 +213,84 @@ impl App {
         }
     }
 
+    fn subscription(&self) -> iced::Subscription<Message> {
+        iced::keyboard::listen().filter_map(|e| match e {
+            iced::keyboard::Event::KeyPressed { key, physical_key, modifiers, .. } => Some(Message::Key(key, physical_key, modifiers)),
+            _ => None,
+        })
+    }
+
+    /// Every clip's key, day by day: the order the arrows go in.
+    fn order(&self) -> Vec<String> {
+        self.project.iter().flat_map(|p| p.footage.days.iter().flat_map(|d| d.clips.iter().map(|c| c.key.clone()))).collect()
+    }
+
+    /// Picks the clip `by` places from the one picked (the first if none),
+    /// and brings it into view.
+    fn step(&mut self, by: isize) -> Task<Message> {
+        let order = self.order();
+        if order.is_empty() {
+            return Task::none();
+        }
+        let at = self.selected.as_ref().and_then(|s| order.iter().position(|k| k == s));
+        let next = match at {
+            Some(i) => (i as isize + by).clamp(0, order.len() as isize - 1) as usize,
+            None => 0,
+        };
+        self.select(order[next].clone())
+    }
+
+    /// Picks `key` and asks where its tile is, to scroll to it.
+    fn select(&mut self, key: String) -> Task<Message> {
+        self.selected = Some(key.clone());
+        iced::advanced::widget::operate(Find { tile: iced::widget::Id::from(key), list: None, found: None }).map(Message::Placed)
+    }
+
     fn update(&mut self, message: Message) -> Task<Message> {
         match message {
+            Message::Select(key) => return self.select(key),
+            Message::Placed(p) => {
+                // Scrolled only as far as needed, with a margin.
+                let (top, bottom) = (p.tile.y - p.content.y, p.tile.y - p.content.y + p.tile.height);
+                let margin = 12.0;
+                let y = if top < p.scrolled.y + margin {
+                    Some(top - margin)
+                } else if bottom > p.scrolled.y + p.view.height - margin {
+                    Some(bottom - p.view.height + margin)
+                } else {
+                    None
+                };
+                if let Some(y) = y {
+                    return iced::widget::operation::scroll_to(LIST, iced::widget::scrollable::AbsoluteOffset { x: 0.0, y: y.max(0.0) });
+                }
+            }
+            Message::Key(key, physical, mods) => {
+                use iced::keyboard::key::{Code, Named, Physical};
+                use iced::keyboard::Key;
+                if mods.command() || mods.alt() {
+                    return Task::none();
+                }
+                // Rated by a key, by its place (P, X, U and the ? key read
+                // the same in Ukrainian): set, not toggled, then on to the
+                // next clip.
+                let rating = match physical {
+                    Physical::Code(Code::KeyP) => Some(Some(2)),
+                    Physical::Code(Code::Slash) => Some(Some(1)),
+                    Physical::Code(Code::KeyX) => Some(Some(0)),
+                    Physical::Code(Code::KeyU) => Some(None),
+                    _ => None,
+                };
+                if let Some(rating) = rating {
+                    let Some(clip) = self.selected.clone() else { return self.step(0) };
+                    self.change(Op::Clip(ClipOp::Rate { clip, rating }));
+                    return self.step(1);
+                }
+                match key {
+                    Key::Named(Named::ArrowRight) => return self.step(1),
+                    Key::Named(Named::ArrowLeft) => return self.step(-1),
+                    _ => {}
+                }
+            }
             Message::Open => {
                 let start = self.settings.projects.clone();
                 return Task::perform(
@@ -226,7 +354,7 @@ impl App {
         for day in &p.footage.days {
             days = days.push(rule::horizontal(1)).push(self.day(p, day));
         }
-        page.push(scrollable(days).height(Length::Fill)).into()
+        page.push(scrollable(days).id(LIST).height(Length::Fill)).into()
     }
 
     /// A day: its date, how far it's rated, its story, its clips.
@@ -267,11 +395,12 @@ impl App {
         };
         let segments = mark.map_or(0, |m| m.marks.iter().filter(|x| x.kind != MarkKind::Flag).count());
         let flags = mark.map_or(0, |m| m.marks.iter().filter(|x| x.kind == MarkKind::Flag).count());
+        let count = |n: usize, one: &str| if n == 1 { format!("1 {one}") } else { format!("{n} {one}s") };
         let counts = match (segments, flags) {
             (0, 0) => String::new(),
-            (s, 0) => format!("{s} segments"),
-            (0, f) => format!("{f} flags"),
-            (s, f) => format!("{s} segments · {f} flags"),
+            (s, 0) => count(s, "segment"),
+            (0, f) => count(f, "flag"),
+            (s, f) => format!("{} · {}", count(s, "segment"), count(f, "flag")),
         };
         let name = c.file.clone();
         let note = mark.map(|m| m.note.clone()).unwrap_or_default();
@@ -284,7 +413,15 @@ impl App {
         .spacing(4)
         .width(TILE)
         .clip(true);
-        container(column![poster, info].spacing(6)).padding(6).style(container::rounded_box).into()
+        let picked = self.selected.as_deref() == Some(c.key.as_str());
+        let tile = container(column![poster, info].spacing(6)).padding(6).id(c.key.clone()).style(move |t: &Theme| {
+            let mut s = container::rounded_box(t);
+            if picked {
+                s.border = iced::Border { color: t.extended_palette().primary.strong.color, width: 2.0, radius: s.border.radius };
+            }
+            s
+        });
+        iced::widget::mouse_area(tile).on_press(Message::Select(c.key.clone())).into()
     }
 }
 
