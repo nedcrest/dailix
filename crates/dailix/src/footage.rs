@@ -5,7 +5,7 @@
 
 use dailix_sheet::Layout;
 use serde::Deserialize;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 /// One clip: its sheet key, its file, its length, its poster's place.
 #[derive(Debug, Clone, PartialEq)]
@@ -81,6 +81,7 @@ pub fn read(layout: &Layout) -> std::io::Result<(Footage, Vec<String>)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::Path;
 
     #[test]
     fn days_and_clips_come_from_the_sidecars() {
