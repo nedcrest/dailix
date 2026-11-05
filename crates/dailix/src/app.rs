@@ -83,6 +83,8 @@ struct App {
     at_home: bool,
     trips: Vec<crate::library::Trip>,
     places: Vec<crate::library::Place>,
+    /// A project being named on the home view: its folder, the name typed.
+    naming: Option<(PathBuf, String)>,
 }
 
 #[derive(Debug, Clone)]
@@ -113,6 +115,11 @@ enum Message {
     Help,
     /// Home: the trips and their days.
     Home,
+    /// A project's name clicked on the home view: named there.
+    Name(PathBuf),
+    NameEdit(String),
+    /// The name typed kept (Enter); Esc lets it go.
+    NameSave,
     /// An edit (of the project at this folder) made from its marking, of a
     /// day or of every day, and opened in Omnix.
     ToOmnix(PathBuf, Option<String>),
@@ -227,7 +234,7 @@ fn clock(t: f64) -> String {
 impl App {
     fn new(open: Option<PathBuf>) -> (App, Task<Message>) {
         let settings = Settings::load();
-        let mut app = App { project: None, error: None, making: HashSet::new(), drafts: HashMap::new(), dirty: HashSet::new(), selected: None, pane: pane::Pane::default(), height: 920.0, scale: settings.scale.unwrap_or(1.0), width: 1500.0, pane_share: settings.pane_share.unwrap_or(pane::SHARE), grip: None, help: false, at_home: true, trips: Vec::new(), places: Vec::new(), settings };
+        let mut app = App { project: None, error: None, making: HashSet::new(), drafts: HashMap::new(), dirty: HashSet::new(), selected: None, pane: pane::Pane::default(), height: 920.0, scale: settings.scale.unwrap_or(1.0), width: 1500.0, pane_share: settings.pane_share.unwrap_or(pane::SHARE), grip: None, help: false, at_home: true, trips: Vec::new(), places: Vec::new(), naming: None, settings };
         // Home first, unless a project was named.
         app.refresh_home();
         let task = match open {
@@ -247,7 +254,7 @@ impl App {
             return "Dailix".to_owned();
         }
         match &self.project {
-            Some(p) => format!("Dailix · {}", p.footage.layout.root.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()),
+            Some(p) => format!("Dailix · {}", crate::library::title(&p.footage.layout.root)),
             None => "Dailix".to_owned(),
         }
     }
@@ -397,6 +404,24 @@ impl App {
                     Err(e) => self.error = Some(format!("{e:#}")),
                 }
             }
+            Message::Name(root) => {
+                let typed = crate::library::title(&root);
+                self.naming = Some((root, typed));
+                return iced::widget::operation::focus(home::NAME);
+            }
+            Message::NameEdit(typed) => {
+                if let Some((_, t)) = &mut self.naming {
+                    *t = typed;
+                }
+            }
+            Message::NameSave => {
+                if let Some((root, typed)) = self.naming.take() {
+                    match crate::library::set_title(&root, &typed) {
+                        Ok(()) => self.refresh_home(),
+                        Err(e) => self.error = Some(format!("{}: {e}", root.display())),
+                    }
+                }
+            }
             Message::Home => {
                 self.save_note_now();
                 self.pane = pane::Pane::default();
@@ -459,6 +484,10 @@ impl App {
                     if matches!(key.as_ref(), Key::Named(Named::Escape)) {
                         self.help = false;
                     }
+                    return Task::none();
+                }
+                if self.naming.is_some() && matches!(key.as_ref(), Key::Named(Named::Escape)) {
+                    self.naming = None;
                     return Task::none();
                 }
                 // A new mark being described: Esc and Tab take it away, even

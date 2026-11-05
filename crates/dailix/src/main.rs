@@ -55,6 +55,9 @@ enum Command {
     /// The trips in the projects place (or in the folder given) as the home
     /// view sums them up: a line per trip and per day.
     Trips { projects: Option<PathBuf> },
+    /// A project's name as people say it: shows it, or sets it (an empty
+    /// one gives back the folder's name). The folder isn't renamed.
+    Title { project: PathBuf, title: Option<String> },
 }
 
 #[derive(Subcommand)]
@@ -156,6 +159,16 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
             for s in skipped {
                 eprintln!("skipped: {s}");
             }
+            return Ok(());
+        }
+        Command::Title { project, title } => {
+            if !dailix_sheet::Layout::new(&project).is_project() {
+                return Err(format!("not a Dailix project: {}", project.display()).into());
+            }
+            if let Some(t) = title {
+                library::set_title(&project, &t)?;
+            }
+            println!("{}", library::title(&project));
             return Ok(());
         }
         Command::Install => {

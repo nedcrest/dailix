@@ -6,8 +6,11 @@
 
 use super::{App, Message};
 use crate::library::{self, Place, Trip};
-use iced::widget::{button, column, container, image, progress_bar, row, rule, scrollable, space, text, tooltip};
+use iced::widget::{button, column, container, image, progress_bar, row, rule, scrollable, space, text, text_input, tooltip};
 use iced::{Alignment, Element, Length, Theme};
+
+/// The field a project is named in, focused when it opens.
+pub(super) const NAME: &str = "project-name";
 
 /// A day card's width; its poster is 16:9 inside it.
 const CARD: f32 = 200.0;
@@ -79,8 +82,12 @@ impl App {
         // The whole project into Omnix (user, 2026-11-05: an empty edit
         // with all of Kos in the bin, not a day's).
         let all = |label: &'static str, msg: Message, hint: &'static str| super::tip(button(text(label).size(13)).padding([3, 10]).style(button::secondary).on_press(msg), text(hint), tooltip::Position::Bottom);
+        let name: Element<'a, Message> = match &self.naming {
+            Some((root, typed)) if *root == trip.root => text_input("the folder's name", typed).id(NAME).size(18).width(320).on_input(Message::NameEdit).on_submit(Message::NameSave).into(),
+            _ => super::tip(button(text(trip.title.clone()).size(18)).padding(0).style(button::text).on_press(Message::Name(trip.root.clone())), text("Rename (the folder keeps its name)"), tooltip::Position::Bottom).into(),
+        };
         let head = row![
-            text(trip.title.clone()).size(18),
+            name,
             text(format!("{dates} · {} days · {} clips", trip.days.len(), trip.clips())).size(13).style(text::secondary),
             all("→ Omnix (all days)", Message::ToOmnix(trip.root.clone(), None), "An edit of every day from its marking, opened in Omnix"),
             all("Empty edit", Message::EmptyDay(trip.root.clone(), None), "An empty edit in Omnix, every day's clips in its bin"),
