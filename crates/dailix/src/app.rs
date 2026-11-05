@@ -115,6 +115,8 @@ enum Message {
     Home,
     /// A day's edit made from its marking and opened in Omnix.
     ToOmnix(String),
+    /// An empty edit of a day opened in Omnix, its bin to build from.
+    EmptyDay(String),
     /// A day's card clicked: its project opened at that day.
     OpenDay(PathBuf, String),
     /// Where the picked tile and the list are, to bring it into view.
@@ -367,10 +369,15 @@ impl App {
                 self.width = s.width;
             }
             Message::Help => self.help = !self.help,
-            Message::ToOmnix(day) => {
+            m @ (Message::ToOmnix(_) | Message::EmptyDay(_)) => {
                 self.save_note_now();
                 let Some(root) = self.project.as_ref().map(|p| p.footage.layout.root.clone()) else { return Task::none() };
-                match rosmo360::from_sheet::write(&root, Some(&day)) {
+                let made = match &m {
+                    Message::EmptyDay(day) => rosmo360::from_sheet::write_empty(&root, day),
+                    Message::ToOmnix(day) => rosmo360::from_sheet::write(&root, Some(day)),
+                    _ => unreachable!(),
+                };
+                match made {
                     Ok(edit) => match omnix() {
                         // `play` opens a project; a session of its own, so it
                         // stays open when Dailix closes.
@@ -662,7 +669,12 @@ impl App {
             text("An edit of this day from its marking, opened in Omnix (a new file in 04_project)"),
             tooltip::Position::Bottom,
         );
-        let head = row![text(day.day.clone()).size(18), text(format!("{} clips · {rated} rated", day.clips.len())).size(13).style(text::secondary), to_omnix].spacing(12).align_y(Alignment::Center);
+        let empty = tip(
+            button(text("Empty day").size(13)).padding([3, 10]).style(button::secondary).on_press(Message::EmptyDay(day.day.clone())),
+            text("An empty edit of this day in Omnix, its clips in the bin, to build the idea afresh"),
+            tooltip::Position::Bottom,
+        );
+        let head = row![text(day.day.clone()).size(18), text(format!("{} clips · {rated} rated", day.clips.len())).size(13).style(text::secondary), to_omnix, empty].spacing(12).align_y(Alignment::Center);
         let story: Element<'a, Message> = match self.drafts.get(&day.day) {
             Some(content) => {
                 let d = day.day.clone();
