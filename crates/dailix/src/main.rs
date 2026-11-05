@@ -9,7 +9,7 @@ mod install;
 mod settings;
 
 use clap::{Parser, Subcommand};
-use dailix_sheet::{Doc, MarkKind, Op, Rating, Sheet, Store};
+use dailix_sheet::{Doc, Op, Sheet, Store};
 use std::path::PathBuf;
 use std::process::ExitCode;
 
@@ -201,7 +201,7 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
         }
         SheetCmd::Describe { notes, day } => {
             let sheet = Doc::parse(&std::fs::read_to_string(notes)?)?.sheet()?;
-            print!("{}", describe(&sheet, day.as_deref()));
+            print!("{}", sheet.describe(day.as_deref()));
         }
         SheetCmd::Schema { of } => {
             let schema = match of {
@@ -214,67 +214,9 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-/// The sheet as text, a day at a time: the day's note, then each clip
-/// rated, noted or marked, then its marks by time.
-fn describe(sheet: &Sheet, only: Option<&str>) -> String {
-    let mut out = String::new();
-    let mut days: Vec<&str> = sheet.days.keys().map(String::as_str).chain(sheet.clips.keys().filter_map(|k| k.split_once('/').map(|(d, _)| d))).collect();
-    days.sort_unstable();
-    days.dedup();
-    for day in days.into_iter().filter(|d| only.is_none_or(|o| o == *d)) {
-        let note = sheet.days.get(day).map(|d| d.note.replace('\n', " / ")).unwrap_or_default();
-        out.push_str(&format!("{day}  {note}\n"));
-        for (key, clip) in sheet.clips.iter().filter(|(k, _)| k.split_once('/').is_some_and(|(d, _)| d == day)) {
-            if clip.rating.is_none() && clip.note.is_empty() && clip.marks.is_empty() {
-                continue;
-            }
-            let file = key.split_once('/').map_or(key.as_str(), |(_, f)| f);
-            let rating = match clip.rating {
-                Some(Rating::Take) => "✓",
-                Some(Rating::Think) => "?",
-                Some(Rating::Junk) => "✕",
-                None => "·",
-            };
-            let voice = clip.audio.as_ref().map(|a| format!("  voice {a}")).unwrap_or_default();
-            out.push_str(&format!("  {file}  {rating}  {}{voice}\n", clip.note.replace('\n', " / ")));
-            let mut marks: Vec<_> = clip.marks.iter().collect();
-            marks.sort_by(|a, b| a.t.total_cmp(&b.t));
-            for m in marks {
-                let span = match (m.kind, m.end) {
-                    (MarkKind::Segment, Some(end)) => format!("{}–{}", dailix_sheet::clock(m.t, 1), dailix_sheet::clock(end, 1)),
-                    (MarkKind::Flag, _) => format!("{} flag", dailix_sheet::clock(m.t, 1)),
-                    _ => dailix_sheet::clock(m.t, 1),
-                };
-                let role = m.role.as_deref().unwrap_or("-");
-                out.push_str(&format!("    {}  {span}  {role}  {}\n", m.id.as_deref().unwrap_or("-"), m.note.replace('\n', " / ")));
-            }
-        }
-    }
-    out
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn a_sheet_reads_as_a_line_per_day_clip_and_mark() {
-        let doc = Doc::parse(
-            r#"{"days": {"2030-05-01": {"note": "море"}}, "clips": {
-                "2030-05-01/a.mp4": {"rating": 2, "note": "кіт", "audio": "dnn6", "marks": [
-                    {"t": 26, "kind": "flag", "note": "мем", "role": "cut", "id": "m2"},
-                    {"t": 1.5, "end": 4, "role": "broll", "note": "фон", "id": "m1"}]},
-                "2030-05-01/b.mp4": {"rating": null, "note": "", "marks": []},
-                "2030-05-02/c.mp4": {"rating": 0}}}"#,
-        )
-        .unwrap();
-        let text = describe(&doc.sheet().unwrap(), None);
-        assert_eq!(
-            text,
-            "2030-05-01  море\n  a.mp4  ✓  кіт  voice dnn6\n    m1  0:01.5–0:04.0  broll  фон\n    m2  0:26.0 flag  cut  мем\n2030-05-02  \n  c.mp4  ✕  \n"
-        );
-        assert_eq!(describe(&doc.sheet().unwrap(), Some("2030-05-02")), "2030-05-02  \n  c.mp4  ✕  \n");
-    }
 
     #[test]
     fn the_schemas_are_made() {
