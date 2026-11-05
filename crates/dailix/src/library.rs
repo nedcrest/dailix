@@ -62,9 +62,8 @@ pub fn trip(root: &Path) -> Result<Trip, String> {
     let layout = Layout::new(root);
     let (footage, _) = footage::read(&layout).map_err(|e| e.to_string())?;
     let sheet = std::fs::read_to_string(layout.sheet()).map_err(|e| e.to_string()).and_then(|t| Doc::parse(&t).map_err(|e| e.to_string())).and_then(|d| d.sheet().map_err(|e| e.to_string()))?;
-    let project: Option<serde_json::Value> = std::fs::read(layout.project()).ok().and_then(|b| serde_json::from_slice(&b).ok());
-    let sources = project.as_ref().and_then(|p| p["sources"].as_str()).map(PathBuf::from);
-    let title = title(root);
+    let sources = dailix_sheet::project::read(&layout).ok().and_then(|p| p.get("sources").and_then(|s| s.as_str()).map(PathBuf::from));
+    let title = dailix_sheet::project::title(root);
     let days = footage
         .days
         .iter()
@@ -79,33 +78,6 @@ pub fn trip(root: &Path) -> Result<Trip, String> {
         })
         .collect();
     Ok(Trip { root: root.to_owned(), title, days })
-}
-
-/// A project's name as people say it ("Kos, summer 2026"): its
-/// `project.json`'s `title`, else its folder's name. The folder keeps its
-/// name, so paths into it (edits, the sources) never change.
-pub fn title(root: &Path) -> String {
-    let named = std::fs::read(Layout::new(root).project()).ok().and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok()).and_then(|p| p["title"].as_str().map(str::trim).filter(|t| !t.is_empty()).map(str::to_owned));
-    named.unwrap_or_else(|| root.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default())
-}
-
-/// Names the project at `root`; an empty name gives it back its folder's.
-/// The file's other fields are kept as they were, in their order; written
-/// beside and renamed, so a cut-off write leaves the old one whole.
-pub fn set_title(root: &Path, title: &str) -> std::io::Result<()> {
-    let path = Layout::new(root).project();
-    let mut project: serde_json::Map<String, serde_json::Value> = match std::fs::read(&path) {
-        Ok(b) => serde_json::from_slice(&b).map_err(std::io::Error::other)?,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => serde_json::Map::from_iter([("version".to_owned(), 1.into())]),
-        Err(e) => return Err(e),
-    };
-    match title.trim() {
-        "" => project.remove("title"),
-        t => project.insert("title".to_owned(), t.into()),
-    };
-    let tmp = path.with_extension("json.tmp");
-    std::fs::write(&tmp, serde_json::to_string_pretty(&project).map_err(std::io::Error::other)?)?;
-    std::fs::rename(tmp, path)
 }
 
 /// The trips as text, a line per trip and per day: what the home view
@@ -168,10 +140,6 @@ pub fn free_space(_: &Path) -> Option<u64> {
 mod tests {
     use super::*;
 
-    fn trips_named(projects: &Path) -> Vec<String> {
-        trips(projects).0.into_iter().map(|t| t.title).collect()
-    }
-
     #[test]
     fn a_trip_reads_as_days_with_their_counts_and_places() {
         let base = std::env::temp_dir().join(format!("dailix-library-{}", std::process::id()));
@@ -216,14 +184,9 @@ mod tests {
             "2030-05_sea  2 days  3 clips\n  2030-05-01  2 clips  1 rated  story  project 2/2  sources\n  2030-05-02  1 clips  0 rated  no story  project 0/1  not in sources\n"
         );
 
-        // Named as people say it; the folder stays as it was.
-        set_title(&root, "  Sea, May 2030 ").unwrap();
-        assert_eq!(trips_named(&projects), ["Sea, May 2030"]);
-        let kept: serde_json::Value = serde_json::from_slice(&std::fs::read(layout.project()).unwrap()).unwrap();
-        assert_eq!(kept.as_object().unwrap().keys().collect::<Vec<_>>(), ["version", "sources", "title"]);
-        set_title(&root, "").unwrap();
-        assert_eq!(trips_named(&projects), ["2030-05_sea"]);
-        assert!(root.is_dir());
+        // Its name as people say it, when it has one.
+        dailix_sheet::project::set_title(&root, "Sea, May 2030").unwrap();
+        assert_eq!(super::trips(&projects).0[0].title, "Sea, May 2030");
 
         let s = Settings { projects: Some(projects.clone()), sources: Some(Sources::Folder { path: base.join("gone") }), ..Default::default() };
         let p = places(&s);

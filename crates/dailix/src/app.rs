@@ -254,7 +254,7 @@ impl App {
             return "Dailix".to_owned();
         }
         match &self.project {
-            Some(p) => format!("Dailix · {}", crate::library::title(&p.footage.layout.root)),
+            Some(p) => format!("Dailix · {}", dailix_sheet::project::title(&p.footage.layout.root)),
             None => "Dailix".to_owned(),
         }
     }
@@ -405,7 +405,7 @@ impl App {
                 }
             }
             Message::Name(root) => {
-                let typed = crate::library::title(&root);
+                let typed = dailix_sheet::project::title(&root);
                 self.naming = Some((root, typed));
                 return iced::widget::operation::focus(home::NAME);
             }
@@ -416,7 +416,7 @@ impl App {
             }
             Message::NameSave => {
                 if let Some((root, typed)) = self.naming.take() {
-                    match crate::library::set_title(&root, &typed) {
+                    match dailix_sheet::project::set_title(&root, &typed) {
                         Ok(()) => self.refresh_home(),
                         Err(e) => self.error = Some(format!("{}: {e}", root.display())),
                     }

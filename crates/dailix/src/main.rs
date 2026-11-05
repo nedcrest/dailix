@@ -166,9 +166,9 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
                 return Err(format!("not a Dailix project: {}", project.display()).into());
             }
             if let Some(t) = title {
-                library::set_title(&project, &t)?;
+                dailix_sheet::project::set_title(&project, &t)?;
             }
-            println!("{}", library::title(&project));
+            println!("{}", dailix_sheet::project::title(&project));
             return Ok(());
         }
         Command::Install => {

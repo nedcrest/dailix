@@ -152,14 +152,11 @@ pub fn run(plan: &Plan, mut progress: impl FnMut(u64, u64)) -> Result<(), Error>
         std::fs::write(layout.sheet(), doc.text())?;
     }
     Store::new(layout.sheet()).read()?;
-    let title = layout.root.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-    let project = serde_json::json!({
-        "version": 1,
-        "title": title,
-        "imported_from": plan.old,
-        "sources": plan.archive,
-    });
-    std::fs::write(layout.project(), serde_json::to_string_pretty(&project)?)?;
+    // Into what's there: a name given since an earlier run stays.
+    dailix_sheet::project::update(layout, |p| {
+        p.insert("imported_from".into(), plan.old.to_string_lossy().into_owned().into());
+        p.insert("sources".into(), plan.archive.as_ref().map(|a| a.to_string_lossy().into_owned()).into());
+    })?;
     Ok(())
 }
 
@@ -208,10 +205,13 @@ mod tests {
         assert!(old.join("report/notes.json").is_file() && archive.join("2030-05-01/A.LRF").is_file());
         assert!(!new.join("05_export/film.mp4").exists() && !new.join("_trash").exists());
 
-        // Again: nothing to copy (all there), the marking as it was.
+        // Again: nothing to copy (all there), the marking as it was, the
+        // name given since kept.
+        dailix_sheet::project::set_title(&new, "Sea").unwrap();
         let again = plan(&old, &new).unwrap();
         run(&again, |_, _| {}).unwrap();
         assert_eq!(std::fs::read_to_string(new.join("dailix/sheet.json")).unwrap(), sheet);
+        assert_eq!(dailix_sheet::project::title(&new), "Sea");
         // A folder that isn't a Dailix project isn't written into.
         write(&base.join("other/file"), b"x");
         assert!(plan(&old, &base.join("other")).is_err());
