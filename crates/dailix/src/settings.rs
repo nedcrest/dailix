@@ -31,17 +31,9 @@ pub struct Settings {
     pub pane_share: Option<f32>,
 }
 
-/// The folder of Dailix's settings.
+/// The folder of Dailix's settings, by the platform's custom.
 pub fn config_dir() -> Option<PathBuf> {
-    let env = |k: &str| std::env::var_os(k).filter(|v| !v.is_empty()).map(PathBuf::from);
-    let base = if cfg!(windows) {
-        env("APPDATA")?
-    } else if cfg!(target_os = "macos") {
-        env("HOME")?.join("Library/Application Support")
-    } else {
-        env("XDG_CONFIG_HOME").or_else(|| env("HOME").map(|h| h.join(".config")))?
-    };
-    Some(base.join("dailix"))
+    rosmo360::app_dir(rosmo360::AppDir::Config, "dailix")
 }
 
 impl Settings {
