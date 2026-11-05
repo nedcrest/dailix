@@ -107,11 +107,6 @@ impl std::fmt::Display for RoleChoice {
     }
 }
 
-fn clock(t: f64) -> String {
-    let tenths = (t.max(0.0) * 10.0).round() as u64;
-    format!("{}:{:02}.{}", tenths / 600, tenths / 10 % 60, tenths % 10)
-}
-
 /// The pane's messages.
 #[derive(Debug, Clone)]
 pub enum PaneMsg {
@@ -478,7 +473,7 @@ impl App {
                 top = top.push(
                     row![
                         button(text(if v.playing() { "⏸" } else { "▶" }).size(14)).padding([2, 12]).on_press(to(PaneMsg::Toggle)),
-                        text(format!("{} / {}", clock(v.position()), clock(v.duration()))).size(13).style(text::secondary),
+                        text(format!("{} / {}", dailix_sheet::clock(v.position(), 1), dailix_sheet::clock(v.duration(), 1))).size(13).style(text::secondary),
                     ]
                     .spacing(10)
                     .align_y(Alignment::Center),
@@ -604,9 +599,9 @@ impl App {
 /// A mark's place: a segment's span, a flag's time and ⚑.
 fn span(m: &dailix_sheet::Mark) -> String {
     match (m.kind, m.end) {
-        (MarkKind::Segment, Some(e)) => format!("{} – {}", clock(m.t), clock(e)),
-        (MarkKind::Flag, _) => format!("{} ⚑", clock(m.t)),
-        _ => clock(m.t),
+        (MarkKind::Segment, Some(e)) => format!("{} – {}", dailix_sheet::clock(m.t, 1), dailix_sheet::clock(e, 1)),
+        (MarkKind::Flag, _) => format!("{} ⚑", dailix_sheet::clock(m.t, 1)),
+        _ => dailix_sheet::clock(m.t, 1),
     }
 }
 

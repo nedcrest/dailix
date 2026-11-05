@@ -226,11 +226,6 @@ fn tip<'a>(content: impl Into<Element<'a, Message>>, label: impl Into<Element<'a
     tooltip(content, label, at).padding(6).style(container::bordered_box).into()
 }
 
-fn clock(t: f64) -> String {
-    let s = t.round() as u64;
-    format!("{}:{:02}", s / 60, s % 60)
-}
-
 impl App {
     fn new(open: Option<PathBuf>) -> (App, Task<Message>) {
         let settings = Settings::load();
@@ -750,7 +745,7 @@ impl App {
         let note = mark.map(|m| m.note.clone()).unwrap_or_default();
         let info = column![
             text(name).size(12).wrapping(text::Wrapping::None),
-            row![text(clock(c.duration)).size(12).style(text::secondary), space().width(Length::Fill), rate(2, "✓", "Take"), rate(1, "?", "Think about it"), rate(0, "✕", "Junk")].spacing(4).align_y(Alignment::Center),
+            row![text(dailix_sheet::clock(c.duration, 0)).size(12).style(text::secondary), space().width(Length::Fill), rate(2, "✓", "Take"), rate(1, "?", "Think about it"), rate(0, "✕", "Junk")].spacing(4).align_y(Alignment::Center),
             text(counts).size(12).style(text::secondary),
             text(note).size(12),
         ]

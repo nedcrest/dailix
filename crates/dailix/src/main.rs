@@ -215,12 +215,6 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-/// Seconds as m:ss.s.
-fn clock(t: f64) -> String {
-    let tenths = (t.max(0.0) * 10.0).round() as u64;
-    format!("{}:{:02}.{}", tenths / 600, tenths / 10 % 60, tenths % 10)
-}
-
 /// The sheet as text, a day at a time: the day's note, then each clip
 /// rated, noted or marked, then its marks by time.
 fn describe(sheet: &Sheet, only: Option<&str>) -> String {
@@ -248,9 +242,9 @@ fn describe(sheet: &Sheet, only: Option<&str>) -> String {
             marks.sort_by(|a, b| a.t.total_cmp(&b.t));
             for m in marks {
                 let span = match (m.kind, m.end) {
-                    (MarkKind::Segment, Some(end)) => format!("{}–{}", clock(m.t), clock(end)),
-                    (MarkKind::Flag, _) => format!("{} flag", clock(m.t)),
-                    _ => clock(m.t),
+                    (MarkKind::Segment, Some(end)) => format!("{}–{}", dailix_sheet::clock(m.t, 1), dailix_sheet::clock(end, 1)),
+                    (MarkKind::Flag, _) => format!("{} flag", dailix_sheet::clock(m.t, 1)),
+                    _ => dailix_sheet::clock(m.t, 1),
                 };
                 let role = m.role.as_deref().unwrap_or("-");
                 out.push_str(&format!("    {}  {span}  {role}  {}\n", m.id.as_deref().unwrap_or("-"), m.note.replace('\n', " / ")));
