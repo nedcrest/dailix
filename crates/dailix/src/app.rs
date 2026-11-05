@@ -210,6 +210,11 @@ fn omnix() -> Option<PathBuf> {
     Some(repo.parent()?.join("omnix-360-studio/target/release/rosmo360")).filter(|p| p.is_file())
 }
 
+/// A tooltip on a background of its own, so it reads over text.
+fn tip<'a>(content: impl Into<Element<'a, Message>>, label: impl Into<Element<'a, Message>>, at: tooltip::Position) -> Element<'a, Message> {
+    tooltip(content, label, at).padding(6).style(container::bordered_box).into()
+}
+
 fn clock(t: f64) -> String {
     let s = t.round() as u64;
     format!("{}:{:02}", s / 60, s % 60)
@@ -367,7 +372,15 @@ impl App {
                 let Some(root) = self.project.as_ref().map(|p| p.footage.layout.root.clone()) else { return Task::none() };
                 match rosmo360::from_sheet::write(&root, Some(&day)) {
                     Ok(edit) => match omnix() {
-                        Some(bin) => match std::process::Command::new(&bin).arg(&edit).stdin(std::process::Stdio::null()).spawn() {
+                        // `play` opens a project; a session of its own, so it
+                        // stays open when Dailix closes.
+                        Some(bin) => match {
+                            let mut cmd = std::process::Command::new(&bin);
+                            cmd.arg("play").arg(&edit).stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null());
+                            #[cfg(unix)]
+                            std::os::unix::process::CommandExt::process_group(&mut cmd, 0);
+                            cmd.spawn()
+                        } {
                             Ok(_) => self.error = None,
                             Err(e) => self.error = Some(format!("{}: {e}", bin.display())),
                         },
@@ -607,13 +620,13 @@ impl App {
 
     fn page(&self) -> Element<'_, Message> {
         let open = button(text("Open…")).on_press(Message::Open);
-        let size = |label: &'static str, step: i32, hint: &'static str| tooltip(button(text(label).size(13)).padding([4, 10]).style(button::secondary).on_press(Message::Scale(step)), text(hint), tooltip::Position::Bottom);
+        let size = |label: &'static str, step: i32, hint: &'static str| tip(button(text(label).size(13)).padding([4, 10]).style(button::secondary).on_press(Message::Scale(step)), text(hint), tooltip::Position::Bottom);
         let sizes = row![size("A−", -1, "Smaller text (Ctrl+−)"), text(format!("{:.0}%", self.scale * 100.0)).size(12), size("A+", 1, "Bigger text (Ctrl+=)")].spacing(6).align_y(Alignment::Center);
         let mut top = row![text(self.title()).size(20), space().width(Length::Fill)].spacing(12).align_y(Alignment::Center);
         if !self.making.is_empty() {
             top = top.push(text(format!("making posters: {} left", self.making.len())).size(13));
         }
-        let keys = tooltip(button(text("Keys").size(13)).padding([4, 10]).style(button::secondary).on_press(Message::Help), text("The keys and the mouse (F1)"), tooltip::Position::Bottom);
+        let keys = tip(button(text("Keys").size(13)).padding([4, 10]).style(button::secondary).on_press(Message::Help), text("The keys and the mouse (F1)"), tooltip::Position::Bottom);
         let top = top.push(sizes).push(keys).push(open);
         // Home first in the bar, while a contact sheet is open.
         let top = if self.at_home { top } else { row![button(text("⌂ Home").size(13)).padding([4, 10]).style(button::secondary).on_press(Message::Home), top].spacing(10).align_y(Alignment::Center) };
@@ -644,7 +657,7 @@ impl App {
     /// A day: its date, how far it's rated, its story, its clips.
     fn day<'a>(&'a self, p: &'a Project, day: &'a footage::Day) -> Element<'a, Message> {
         let rated = day.clips.iter().filter(|c| p.sheet.clips.get(&c.key).is_some_and(|s| s.rating.is_some())).count();
-        let to_omnix = tooltip(
+        let to_omnix = tip(
             button(text("→ Omnix").size(13)).padding([3, 10]).style(button::secondary).on_press(Message::ToOmnix(day.day.clone())),
             text("An edit of this day from its marking, opened in Omnix (a new file in 04_project)"),
             tooltip::Position::Bottom,
@@ -675,7 +688,7 @@ impl App {
         let rating = mark.and_then(|m| m.rating).map(rating_value);
         let rate = |r: u8, label: &'static str, hint: &'static str| -> Element<'a, Message> {
             let on = rating == Some(r);
-            tooltip(
+            tip(
                 button(text(label).size(14)).padding([2, 10]).style(if on { button::primary } else { button::secondary }).on_press(Message::Rate(c.key.clone(), Some(r))),
                 text(hint),
                 tooltip::Position::Top,

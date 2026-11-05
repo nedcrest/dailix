@@ -52,7 +52,7 @@ impl App {
             };
             let path = p.path.as_ref().map(|p| p.display().to_string()).unwrap_or_default();
             let online = p.online;
-            tooltip(
+            super::tip(
                 container(text(state).size(13)).padding([4, 10]).style(move |t: &Theme| {
                     let mut s = container::rounded_box(t);
                     if !online {
