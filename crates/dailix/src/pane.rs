@@ -487,7 +487,7 @@ impl App {
             let c = self.role_colour(m.role.as_deref());
             let bar = container(space()).width(4).height(Length::Fill).style(move |_| container::background(c));
             // The note under the time and role: it reads at any width.
-            let outside = m.kind != MarkKind::Segment && !marks.iter().any(|s| s.kind == MarkKind::Segment && s.end.is_some_and(|e| m.t >= s.t && m.t <= e));
+            let outside = m.kind != MarkKind::Segment && !dailix_sheet::in_segment(&marks, m.t);
             let when = text(span(m)).size(13).width(140);
             let when = if outside { when.style(text::secondary) } else { when };
             let mut body = column![row![when, text(self.role_name(m.role.as_deref())).size(13)].spacing(8)].spacing(2);
@@ -666,8 +666,8 @@ impl Strip {
     fn shown(&self, id: &str, s: f64, e: Option<f64>, drag: &Drag) -> (f64, Option<f64>) {
         match drag {
             Drag::Mark { id: d, part, t, .. } if d == id => match part {
-                Part::Start => (t.min(e.unwrap_or(*t) - 0.2), e),
-                Part::End => (s, Some(t.max(s + 0.2))),
+                Part::Start => (t.min(e.unwrap_or(*t) - dailix_sheet::ops::MIN_SEGMENT), e),
+                Part::End => (s, Some(t.max(s + dailix_sheet::ops::MIN_SEGMENT))),
                 Part::Pole => (*t, None),
             },
             _ => (s, e),
