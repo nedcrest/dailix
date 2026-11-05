@@ -121,10 +121,12 @@ pub enum RoleOp { Add { title: String, en: String, hint: String } }   // key mad
   `<day>/<file>` with that day;
 - (with a clip's length known, from the sidecar) marks inside the clip.
 
-### 5. Undo and the file
+### 5. The file (and undo, later)
 
-- `Edit`: the sheet plus snapshot undo with `begin` / `commit`, as
-  Omnix's (a drag on a strip is one step; nothing changed, no step).
+- Undo: not yet. A snapshot undo (`Edit`, built 2026-11-04) was dropped
+  unused (user, 2026-11-05): restoring a snapshot would overwrite what
+  another writer saved since. Undo comes as inverse ops through `Store`,
+  with a key.
 - `Store`: the file on disk. Every write reads the file afresh, applies
   the ops given (id-addressed, so they land on whatever is there now),
   checks, writes atomically with the last version beside it (`.bak`).
@@ -175,12 +177,10 @@ dependency becomes a git or crates.io one.
    `<day>/<file>`); an op is refused only for a problem it would add, so
    one already in a file blocks nothing. Kos's sheet (a scratch copy):
    no problems.
-4. **Undo, and properties** — done 2026-11-04 (`edit.rs`,
-   `tests/props.rs`). `Edit`: an op a step, a run between `begin` and
-   `commit` one step, no step for nothing changed, 200 steps back.
-   Proptest: random runs of up to 40 ops (bad roles, ratings and ids
-   among them) keep `check` empty, read back from their own text, and
-   undo and redo walk every state; 5000 runs pass.
+4. **Properties** — done 2026-11-04 (`tests/props.rs`): random runs of
+   up to 40 ops (bad roles, ratings and ids among them) keep `check`
+   empty, read back from their own text, and a refused op changes
+   nothing. (The snapshot undo built here was dropped, §5.)
 5. **`Store`** — done 2026-11-04 (`store.rs`). No copy held between
    writes: each reads the file afresh, gives ids to marks another writer
    added, applies the ops (all or none), writes whole (beside, synced,
