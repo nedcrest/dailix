@@ -3,6 +3,7 @@
 
 mod app;
 mod footage;
+mod help;
 mod import;
 mod install;
 mod settings;

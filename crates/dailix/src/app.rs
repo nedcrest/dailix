@@ -71,6 +71,8 @@ struct App {
     /// worked out from the window's right edge, and a width the window
     /// hadn't reported yet threw the pane to its narrowest).
     grip: Option<Option<(f32, f32)>>,
+    /// The keys' list shown (F1).
+    help: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -97,6 +99,8 @@ enum Message {
     Grip,
     Pointer(iced::Point),
     Release,
+    /// The keys' list shown or hidden (F1).
+    Help,
     /// Where the picked tile and the list are, to bring it into view.
     Placed(Placement),
     /// The player at the right.
@@ -183,7 +187,7 @@ fn clock(t: f64) -> String {
 impl App {
     fn new(open: Option<PathBuf>) -> (App, Task<Message>) {
         let settings = Settings::load();
-        let mut app = App { project: None, error: None, making: HashSet::new(), drafts: HashMap::new(), dirty: HashSet::new(), selected: None, pane: pane::Pane::default(), height: 920.0, scale: settings.scale.unwrap_or(1.0), width: 1500.0, pane_width: settings.pane_width.unwrap_or(pane::WIDTH), grip: None, settings };
+        let mut app = App { project: None, error: None, making: HashSet::new(), drafts: HashMap::new(), dirty: HashSet::new(), selected: None, pane: pane::Pane::default(), height: 920.0, scale: settings.scale.unwrap_or(1.0), width: 1500.0, pane_width: settings.pane_width.unwrap_or(pane::WIDTH), grip: None, help: false, settings };
         let root = open.or_else(|| app.settings.last.clone());
         let task = match root {
             Some(root) => app.load(root),
@@ -319,6 +323,7 @@ impl App {
                 self.height = s.height;
                 self.width = s.width;
             }
+            Message::Help => self.help = !self.help,
             Message::Grip => self.grip = Some(None),
             Message::Pointer(p) => {
                 // Moved left, the pane widens; up to half the window.
@@ -358,6 +363,17 @@ impl App {
             Message::Key(key, physical, mods, taken) => {
                 use iced::keyboard::key::{Code, Named, Physical};
                 use iced::keyboard::Key;
+                // F1 shows or hides the keys' list; Esc hides it.
+                if physical == Physical::Code(Code::F1) {
+                    self.help = !self.help;
+                    return Task::none();
+                }
+                if self.help {
+                    if matches!(key.as_ref(), Key::Named(Named::Escape)) {
+                        self.help = false;
+                    }
+                    return Task::none();
+                }
                 // A new mark being described: Esc and Tab take it away, even
                 // from its note field; ↑ ↓ Enter choose its role; nothing else.
                 if self.pane.pending.is_some() {
@@ -478,7 +494,42 @@ impl App {
         Task::none()
     }
 
+    /// The window, and the keys' list over it when shown. The layer is
+    /// always there (empty when hidden), so the window under it keeps its
+    /// state (a scroll, a field's focus) when the list comes up.
     fn view(&self) -> Element<'_, Message> {
+        iced::widget::stack![self.page(), self.help_layer()].into()
+    }
+
+    fn help_layer(&self) -> Element<'_, Message> {
+        if !self.help {
+            return space().into();
+        }
+        let group = |(title, lines): &(&'static str, &'static [(&'static str, &'static str)])| -> Element<'_, Message> {
+            let rows = lines.iter().map(|(k, what)| row![text(*k).size(13).width(210), text(*what).size(13).style(text::secondary)].spacing(10).into());
+            column![text(*title).size(15)].push(column(rows).spacing(4)).spacing(8).into()
+        };
+        let half = crate::help::GROUPS.len().div_ceil(2);
+        let col = |gs: &'static [(&'static str, &'static [(&'static str, &'static str)])]| column(gs.iter().map(group)).spacing(18).width(Length::Fill);
+        let body = row![col(&crate::help::GROUPS[..half]), col(&crate::help::GROUPS[half..])].spacing(28);
+        let card = container(
+            column![
+                row![text("Keys and mouse").size(18), space().width(Length::Fill), button(text("Close")).on_press(Message::Help)].align_y(Alignment::Center),
+                rule::horizontal(1),
+                scrollable(body).height(Length::Shrink),
+            ]
+            .spacing(12)
+            .width(900),
+        )
+        .padding(18)
+        .max_height(720)
+        .style(container::rounded_box);
+        // A click outside closes it; inside, nothing below takes it.
+        let shade = container(iced::widget::center(iced::widget::opaque(card))).width(Length::Fill).height(Length::Fill).style(|_| container::Style::default().background(iced::Color::from_rgba(0.0, 0.0, 0.0, 0.55)));
+        iced::widget::opaque(iced::widget::mouse_area(shade).on_press(Message::Help))
+    }
+
+    fn page(&self) -> Element<'_, Message> {
         let open = button(text("Open…")).on_press(Message::Open);
         let size = |label: &'static str, step: i32, hint: &'static str| tooltip(button(text(label).size(13)).padding([4, 10]).style(button::secondary).on_press(Message::Scale(step)), text(hint), tooltip::Position::Bottom);
         let sizes = row![size("A−", -1, "Smaller text (Ctrl+−)"), text(format!("{:.0}%", self.scale * 100.0)).size(12), size("A+", 1, "Bigger text (Ctrl+=)")].spacing(6).align_y(Alignment::Center);
@@ -486,7 +537,8 @@ impl App {
         if !self.making.is_empty() {
             top = top.push(text(format!("making posters: {} left", self.making.len())).size(13));
         }
-        let top = top.push(sizes).push(open);
+        let keys = tooltip(button(text("Keys").size(13)).padding([4, 10]).style(button::secondary).on_press(Message::Help), text("The keys and the mouse (F1)"), tooltip::Position::Bottom);
+        let top = top.push(sizes).push(keys).push(open);
         let mut page = column![container(top).padding([10, 16])];
         if let Some(e) = &self.error {
             page = page.push(container(text(e.clone()).size(13).style(text::danger)).padding([0, 16]));
