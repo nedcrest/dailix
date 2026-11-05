@@ -10,7 +10,7 @@ mod pane;
 #[path = "home.rs"]
 mod home;
 
-use crate::footage::{self, Footage};
+use dailix_sheet::footage::{self, Footage};
 use crate::settings::Settings;
 use dailix_sheet::{ClipOp, DayOp, Layout, MarkKind, Op, Rating, Sheet, Store};
 use iced::widget::{button, column, container, image, row, rule, scrollable, space, text, text_editor, tooltip};

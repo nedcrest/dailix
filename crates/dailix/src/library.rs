@@ -4,7 +4,7 @@
 //! are), and the places with their state. Only read: the home view
 //! changes nothing (it doesn't even give marks their ids).
 
-use crate::footage;
+use dailix_sheet::footage;
 use crate::settings::{Settings, Sources};
 use dailix_sheet::{Doc, Layout};
 use std::path::{Path, PathBuf};

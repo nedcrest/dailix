@@ -2,7 +2,6 @@
 //! now; the window comes next (`docs/CONTEXT.md`).
 
 mod app;
-mod footage;
 mod help;
 mod import;
 mod library;

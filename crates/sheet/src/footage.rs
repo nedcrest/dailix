@@ -3,7 +3,7 @@
 //! sidecar: its file and length), day by day, each with its file under
 //! `01_footage` and its poster's place (`Layout`).
 
-use dailix_sheet::Layout;
+use crate::Layout;
 use serde::Deserialize;
 use std::path::PathBuf;
 
