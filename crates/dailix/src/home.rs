@@ -4,10 +4,10 @@
 //! written, and where its files are (in the project, in the sources).
 //! Folders stay out of sight: a card opens its day in the contact sheet.
 
-use super::{App, Message};
+use super::{App, Message, pane};
 use crate::library::{self, Place, Trip};
 use iced::widget::{button, column, container, image, progress_bar, row, rule, scrollable, space, text, text_input, tooltip};
-use iced::{Alignment, Element, Length, Theme};
+use iced::{Alignment, Element, Length, Task, Theme};
 
 /// The field a project is named in, focused when it opens.
 pub(super) const NAME: &str = "project-name";
@@ -20,6 +20,56 @@ fn gb(bytes: u64) -> String {
 }
 
 impl App {
+    /// The home view's messages, and going to and from it: a project
+    /// named, a day opened, an edit made for Omnix.
+    pub(super) fn on_home(&mut self, message: Message) -> Task<Message> {
+        match message {
+            m @ (Message::ToOmnix(..) | Message::EmptyDay(..)) => {
+                self.save_note();
+                let made = match &m {
+                    Message::EmptyDay(root, day) => rosmo360::from_sheet::write_empty(root, day.as_deref()),
+                    Message::ToOmnix(root, day) => rosmo360::from_sheet::write(root, day.as_deref()),
+                    _ => return Task::none(),
+                };
+                self.error = made.map_err(|e| format!("{e:#}")).and_then(|edit| crate::omnix::open(&edit)).err();
+            }
+            Message::Name(root) => {
+                let typed = dailix_sheet::project::title(&root);
+                self.naming = Some((root, typed));
+                return iced::widget::operation::focus(NAME);
+            }
+            Message::NameEdit(typed) => {
+                if let Some((_, t)) = &mut self.naming {
+                    *t = typed;
+                }
+            }
+            Message::NameSave => {
+                if let Some((root, typed)) = self.naming.take() {
+                    match dailix_sheet::project::set_title(&root, &typed) {
+                        Ok(()) => self.refresh_home(),
+                        Err(e) => self.error = Some(format!("{}: {e}", root.display())),
+                    }
+                }
+            }
+            Message::Home => {
+                self.save_note();
+                self.pane = pane::Pane::default();
+                self.selected = None;
+                self.at_home = true;
+                self.refresh_home();
+            }
+            Message::OpenDay(root, day) => {
+                self.at_home = false;
+                let open = if self.project.as_ref().map(|p| &p.footage.layout.root) != Some(&root) { self.load(root) } else { Task::none() };
+                let first = self.project.as_ref().and_then(|p| p.footage.days.iter().find(|d| d.day == day)).and_then(|d| d.clips.first()).map(|c| c.key.clone());
+                let pick = first.map_or_else(Task::none, |k| self.select(k));
+                return Task::batch([open, pick]);
+            }
+            _ => {}
+        }
+        Task::none()
+    }
+
     /// Reads the trips and the places again.
     pub(super) fn refresh_home(&mut self) {
         let (trips, skipped) = self.settings.projects.as_deref().map(library::trips).unwrap_or_default();

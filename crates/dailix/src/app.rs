@@ -349,47 +349,7 @@ impl App {
                 self.width = s.width;
             }
             Message::Help => self.help = !self.help,
-            m @ (Message::ToOmnix(..) | Message::EmptyDay(..)) => {
-                self.save_note();
-                let made = match &m {
-                    Message::EmptyDay(root, day) => rosmo360::from_sheet::write_empty(root, day.as_deref()),
-                    Message::ToOmnix(root, day) => rosmo360::from_sheet::write(root, day.as_deref()),
-                    _ => return Task::none(),
-                };
-                self.error = made.map_err(|e| format!("{e:#}")).and_then(|edit| crate::omnix::open(&edit)).err();
-            }
-            Message::Name(root) => {
-                let typed = dailix_sheet::project::title(&root);
-                self.naming = Some((root, typed));
-                return iced::widget::operation::focus(home::NAME);
-            }
-            Message::NameEdit(typed) => {
-                if let Some((_, t)) = &mut self.naming {
-                    *t = typed;
-                }
-            }
-            Message::NameSave => {
-                if let Some((root, typed)) = self.naming.take() {
-                    match dailix_sheet::project::set_title(&root, &typed) {
-                        Ok(()) => self.refresh_home(),
-                        Err(e) => self.error = Some(format!("{}: {e}", root.display())),
-                    }
-                }
-            }
-            Message::Home => {
-                self.save_note();
-                self.pane = pane::Pane::default();
-                self.selected = None;
-                self.at_home = true;
-                self.refresh_home();
-            }
-            Message::OpenDay(root, day) => {
-                self.at_home = false;
-                let open = if self.project.as_ref().map(|p| &p.footage.layout.root) != Some(&root) { self.load(root) } else { Task::none() };
-                let first = self.project.as_ref().and_then(|p| p.footage.days.iter().find(|d| d.day == day)).and_then(|d| d.clips.first()).map(|c| c.key.clone());
-                let pick = first.map_or_else(Task::none, |k| self.select(k));
-                return Task::batch([open, pick]);
-            }
+            m @ (Message::ToOmnix(..) | Message::EmptyDay(..) | Message::Name(_) | Message::NameEdit(_) | Message::NameSave | Message::Home | Message::OpenDay(..)) => return self.on_home(m),
             Message::Grip => self.grip = Some(None),
             Message::Pointer(p) => {
                 // Moved left, the pane widens; up to half the window.
@@ -426,99 +386,7 @@ impl App {
                 self.settings.scale = Some(self.scale);
                 let _ = self.settings.save();
             }
-            Message::Key(key, physical, mods, taken) => {
-                use iced::keyboard::key::{Code, Named, Physical};
-                use iced::keyboard::Key;
-                // F1 shows or hides the keys' list; Esc hides it.
-                if physical == Physical::Code(Code::F1) {
-                    self.help = !self.help;
-                    return Task::none();
-                }
-                if self.help {
-                    if matches!(key.as_ref(), Key::Named(Named::Escape)) {
-                        self.help = false;
-                    }
-                    return Task::none();
-                }
-                if self.naming.is_some() && matches!(key.as_ref(), Key::Named(Named::Escape)) {
-                    self.naming = None;
-                    return Task::none();
-                }
-                // A new mark being described: Esc and Tab take it away, even
-                // from its note field; ↑ ↓ Enter choose its role; nothing else.
-                if self.pane.pending.is_some() {
-                    match key.as_ref() {
-                        Key::Named(Named::Escape) => self.cancel_pending(),
-                        Key::Named(Named::Tab) => {
-                            self.cancel_pending();
-                            self.pane.focused = false;
-                        }
-                        _ if !taken => return self.pending_key(&key),
-                        _ => {}
-                    }
-                    return Task::none();
-                }
-                if taken {
-                    return Task::none();
-                }
-                // The text's size: Ctrl and = / − / 0.
-                if mods.command() {
-                    match physical {
-                        Physical::Code(Code::Equal | Code::NumpadAdd) => return self.update(Message::Scale(1)),
-                        Physical::Code(Code::Minus | Code::NumpadSubtract) => return self.update(Message::Scale(-1)),
-                        Physical::Code(Code::Digit0 | Code::Numpad0) => return self.update(Message::Scale(0)),
-                        _ => {}
-                    }
-                }
-                if mods.command() || mods.alt() || self.at_home {
-                    return Task::none();
-                }
-                // Tab: the keys go to the player, or back to the tiles.
-                if matches!(key.as_ref(), Key::Named(Named::Tab)) && self.pane.key.is_some() {
-                    self.pane.focused = !self.pane.focused;
-                    return Task::none();
-                }
-                // ← → in the player: a frame, with Shift a second, as Omnix.
-                if self.pane.focused
-                    && let Key::Named(dir @ (Named::ArrowLeft | Named::ArrowRight)) = key.as_ref()
-                    && let Some(v) = &mut self.pane.viewer
-                {
-                    let sign = if dir == Named::ArrowLeft { -1.0 } else { 1.0 };
-                    if mods.shift() {
-                        v.jump((v.position() + sign).clamp(0.0, v.duration()));
-                    } else {
-                        v.step(sign);
-                    }
-                    return Task::none();
-                }
-                // The player's keys first, while a clip is open in it.
-                if self.pane.key.is_some()
-                    && let Physical::Code(code) = physical
-                    && self.pane_key(code)
-                {
-                    return Task::none();
-                }
-                // Rated by a key, by its place (P, X, U and the ? key read
-                // the same in Ukrainian): set, not toggled, then on to the
-                // next clip.
-                let rating = match physical {
-                    Physical::Code(Code::KeyP) => Some(Some(2)),
-                    Physical::Code(Code::Slash) => Some(Some(1)),
-                    Physical::Code(Code::KeyX) => Some(Some(0)),
-                    Physical::Code(Code::KeyU) => Some(None),
-                    _ => None,
-                };
-                if let Some(rating) = rating {
-                    let Some(clip) = self.selected.clone() else { return self.step(0) };
-                    self.change(Op::Clip(ClipOp::Rate { clip, rating }));
-                    return self.step(1);
-                }
-                match key {
-                    Key::Named(Named::ArrowRight) => return self.step(1),
-                    Key::Named(Named::ArrowLeft) => return self.step(-1),
-                    _ => {}
-                }
-            }
+            Message::Key(key, physical, mods, taken) => return self.on_key(key, physical, mods, taken),
             Message::Open => {
                 let start = self.settings.projects.clone();
                 return Task::perform(
@@ -563,6 +431,105 @@ impl App {
                     self.making.remove(&p);
                 }
             }
+        }
+        Task::none()
+    }
+
+    /// A key pressed: the keys' list (F1), a mark's role being asked,
+    /// the text's size, then the contact sheet's keys (ratings, moving
+    /// between tiles, the player's and the marking's). `taken`: a field
+    /// used it already.
+    fn on_key(&mut self, key: iced::keyboard::Key, physical: iced::keyboard::key::Physical, mods: iced::keyboard::Modifiers, taken: bool) -> Task<Message> {
+        use iced::keyboard::key::{Code, Named, Physical};
+        use iced::keyboard::Key;
+        // F1 shows or hides the keys' list; Esc hides it.
+        if physical == Physical::Code(Code::F1) {
+            self.help = !self.help;
+            return Task::none();
+        }
+        if self.help {
+            if matches!(key.as_ref(), Key::Named(Named::Escape)) {
+                self.help = false;
+            }
+            return Task::none();
+        }
+        if self.naming.is_some() && matches!(key.as_ref(), Key::Named(Named::Escape)) {
+            self.naming = None;
+            return Task::none();
+        }
+        // A new mark being described: Esc and Tab take it away, even
+        // from its note field; ↑ ↓ Enter choose its role; nothing else.
+        if self.pane.pending.is_some() {
+            match key.as_ref() {
+                Key::Named(Named::Escape) => self.cancel_pending(),
+                Key::Named(Named::Tab) => {
+                    self.cancel_pending();
+                    self.pane.focused = false;
+                }
+                _ if !taken => return self.pending_key(&key),
+                _ => {}
+            }
+            return Task::none();
+        }
+        if taken {
+            return Task::none();
+        }
+        // The text's size: Ctrl and = / − / 0.
+        if mods.command() {
+            match physical {
+                Physical::Code(Code::Equal | Code::NumpadAdd) => return self.update(Message::Scale(1)),
+                Physical::Code(Code::Minus | Code::NumpadSubtract) => return self.update(Message::Scale(-1)),
+                Physical::Code(Code::Digit0 | Code::Numpad0) => return self.update(Message::Scale(0)),
+                _ => {}
+            }
+        }
+        if mods.command() || mods.alt() || self.at_home {
+            return Task::none();
+        }
+        // Tab: the keys go to the player, or back to the tiles.
+        if matches!(key.as_ref(), Key::Named(Named::Tab)) && self.pane.key.is_some() {
+            self.pane.focused = !self.pane.focused;
+            return Task::none();
+        }
+        // ← → in the player: a frame, with Shift a second, as Omnix.
+        if self.pane.focused
+            && let Key::Named(dir @ (Named::ArrowLeft | Named::ArrowRight)) = key.as_ref()
+            && let Some(v) = &mut self.pane.viewer
+        {
+            let sign = if dir == Named::ArrowLeft { -1.0 } else { 1.0 };
+            if mods.shift() {
+                v.jump((v.position() + sign).clamp(0.0, v.duration()));
+            } else {
+                v.step(sign);
+            }
+            return Task::none();
+        }
+        // The player's keys first, while a clip is open in it.
+        if self.pane.key.is_some()
+            && let Physical::Code(code) = physical
+            && self.pane_key(code)
+        {
+            return Task::none();
+        }
+        // Rated by a key, by its place (P, X, U and the ? key read
+        // the same in Ukrainian): set, not toggled, then on to the
+        // next clip.
+        let rating = match physical {
+            Physical::Code(Code::KeyP) => Some(Some(2)),
+            Physical::Code(Code::Slash) => Some(Some(1)),
+            Physical::Code(Code::KeyX) => Some(Some(0)),
+            Physical::Code(Code::KeyU) => Some(None),
+            _ => None,
+        };
+        if let Some(rating) = rating {
+            let Some(clip) = self.selected.clone() else { return self.step(0) };
+            self.change(Op::Clip(ClipOp::Rate { clip, rating }));
+            return self.step(1);
+        }
+        match key {
+            Key::Named(Named::ArrowRight) => return self.step(1),
+            Key::Named(Named::ArrowLeft) => return self.step(-1),
+            _ => {}
         }
         Task::none()
     }
