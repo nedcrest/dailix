@@ -6,6 +6,7 @@ mod app;
 mod help;
 mod import;
 mod library;
+mod omnix;
 mod install;
 mod settings;
 

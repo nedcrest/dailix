@@ -197,21 +197,6 @@ fn make_poster(clip: &std::path::Path, duration: f64, poster: &std::path::Path) 
     std::fs::write(&part, jpeg).is_ok() && std::fs::rename(&part, poster).is_ok()
 }
 
-/// Omnix's binary, to open an edit in: `OMNIX_BIN`, else on PATH as
-/// `rosmo360`, else a build beside this one's repo (`../omnix-360-studio`).
-fn omnix() -> Option<PathBuf> {
-    if let Some(p) = std::env::var_os("OMNIX_BIN").map(PathBuf::from).filter(|p| p.is_file()) {
-        return Some(p);
-    }
-    if let Some(p) = std::env::var_os("PATH").and_then(|path| std::env::split_paths(&path).map(|d| d.join("rosmo360")).find(|p| p.is_file())) {
-        return Some(p);
-    }
-    // This binary is <repo>/target/release/dailix; Omnix's repo is beside.
-    let exe = std::env::current_exe().ok()?;
-    let repo = exe.parent()?.parent()?.parent()?;
-    Some(repo.parent()?.join("omnix-360-studio/target/release/rosmo360")).filter(|p| p.is_file())
-}
-
 /// A tooltip on a background of its own, so it reads over text.
 fn tip<'a>(content: impl Into<Element<'a, Message>>, label: impl Into<Element<'a, Message>>, at: tooltip::Position) -> Element<'a, Message> {
     tooltip(content, label, at).padding(6).style(container::bordered_box).into()
@@ -371,24 +356,7 @@ impl App {
                     Message::ToOmnix(root, day) => rosmo360::from_sheet::write(root, day.as_deref()),
                     _ => return Task::none(),
                 };
-                match made {
-                    Ok(edit) => match omnix() {
-                        // `play` opens a project; a session of its own, so it
-                        // stays open when Dailix closes.
-                        Some(bin) => match {
-                            let mut cmd = std::process::Command::new(&bin);
-                            cmd.arg("play").arg(&edit).stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null());
-                            #[cfg(unix)]
-                            std::os::unix::process::CommandExt::process_group(&mut cmd, 0);
-                            cmd.spawn()
-                        } {
-                            Ok(_) => self.error = None,
-                            Err(e) => self.error = Some(format!("{}: {e}", bin.display())),
-                        },
-                        None => self.error = Some(format!("Written {}, but Omnix wasn't found to open it (OMNIX_BIN)", edit.display())),
-                    },
-                    Err(e) => self.error = Some(format!("{e:#}")),
-                }
+                self.error = made.map_err(|e| format!("{e:#}")).and_then(|edit| crate::omnix::open(&edit)).err();
             }
             Message::Name(root) => {
                 let typed = dailix_sheet::project::title(&root);
