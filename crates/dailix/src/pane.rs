@@ -8,7 +8,10 @@
 //!
 //! Keys (the window's, read by their place so any layout works): Space
 //! plays; I and O make a segment (or, inside the picked one, move its
-//! ends); F sets a flag; Page Up / Down go to the mark before or after;
+//! ends); F sets a flag, a note to self that never goes into the edit; M
+//! a moment, a segment a second either side (user, 2026-11-05: a flag
+//! outside every segment adds nothing, so a quick way to add material);
+//! Page Up / Down go to the mark before or after;
 //! Delete removes the picked one. A mark just made (F, or O after I) asks
 //! at once for its role (↑ ↓, Enter) and its note (Enter); Esc or Tab
 //! before that takes it away again (user, 2026-11-05: roles had a key each,
@@ -394,6 +397,15 @@ impl App {
                 let made = self.change(Op::Mark(MarkOp::Add { clip, t: now, end: None, flag: true, role: None, note: String::new() }));
                 self.begin_pending(made);
             }
+            // M: a moment, a segment a second either side of the playhead,
+            // to stretch by its edges: material, where F is a note.
+            Code::KeyM => {
+                let (Some(now), Some(clip)) = (now, self.pane.key.clone()) else { return true };
+                let length = self.pane.viewer.as_ref().map_or(f64::INFINITY, Viewer::duration);
+                self.pane.mark_in = None;
+                let made = self.change(Op::Mark(MarkOp::Add { clip, t: (now - 1.0).max(0.0), end: Some((now + 1.0).min(length)), flag: false, role: None, note: String::new() }));
+                self.begin_pending(made);
+            }
             // Page Up / Down: to the mark before or after, picked.
             Code::PageUp | Code::PageDown => {
                 let mut marks = self.marks();
@@ -467,7 +479,10 @@ impl App {
             let c = colour(m.role.as_deref());
             let bar = container(space()).width(4).height(Length::Fill).style(move |_| container::background(c));
             // The note under the time and role: it reads at any width.
-            let mut body = column![row![text(span(m)).size(13).width(140), text(role_name(m.role.as_deref())).size(13)].spacing(8)].spacing(2);
+            let outside = m.kind != MarkKind::Segment && !marks.iter().any(|s| s.kind == MarkKind::Segment && s.end.is_some_and(|e| m.t >= s.t && m.t <= e));
+            let when = text(span(m)).size(13).width(140);
+            let when = if outside { when.style(text::secondary) } else { when };
+            let mut body = column![row![when, text(role_name(m.role.as_deref())).size(13)].spacing(8)].spacing(2);
             if !m.note.is_empty() {
                 body = body.push(text(m.note.clone()).size(13).style(text::secondary));
             }
@@ -736,6 +751,9 @@ impl canvas::Program<Message> for Strip {
                 None => {
                     let x = px(s);
                     let edge = palette.background.base.color;
+                    // Outside every segment it goes into no edit: dimmed.
+                    let inside = self.marks.iter().any(|m| m.2.is_some_and(|e| s >= m.1 && s <= e));
+                    let c = &if inside { *c } else { Color { a: 0.45, ..*c } };
                     frame.fill(&Path::rectangle(Point::new(x - 2.0, 0.0), Size::new(if picked { 5.0 } else { 4.0 }, h)), edge);
                     frame.fill(&Path::rectangle(Point::new(x - 1.0, 0.0), Size::new(if picked { 3.0 } else { 2.0 }, h)), *c);
                     let head = Path::new(|b| {
