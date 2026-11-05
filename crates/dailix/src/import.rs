@@ -65,12 +65,6 @@ fn tree(from: &Path, to: &Path, skip: &dyn Fn(&Path) -> bool, out: &mut Vec<Copy
     Ok(())
 }
 
-/// A day's folder: named YYYY-MM-DD.
-fn is_day(p: &Path) -> bool {
-    let n = p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-    n.len() == 10 && n.chars().enumerate().all(|(i, c)| if i == 4 || i == 7 { c == '-' } else { c.is_ascii_digit() })
-}
-
 /// Plans the import of the footage-agent project `old` into `new`.
 pub fn plan(old: &Path, new: &Path) -> Result<Plan, Error> {
     if !old.join("report").join("notes.json").is_file() {
@@ -87,7 +81,7 @@ pub fn plan(old: &Path, new: &Path) -> Result<Plan, Error> {
     // The clips: the archive's days (LRF left there), then the old
     // project's own footage (days that never were in the archive).
     if let Some(archive) = &archive {
-        let mut days: Vec<PathBuf> = std::fs::read_dir(archive)?.flatten().map(|e| e.path()).filter(|p| p.is_dir() && is_day(p)).collect();
+        let mut days: Vec<PathBuf> = std::fs::read_dir(archive)?.flatten().map(|e| e.path()).filter(|p| p.is_dir() && p.file_name().is_some_and(|n| dailix_sheet::is_day(&n.to_string_lossy()))).collect();
         days.sort();
         for day in days {
             tree(&day, &layout.footage().join(day.file_name().unwrap()), &lrf, &mut copies)?;
