@@ -113,6 +113,8 @@ enum Message {
     Help,
     /// Home: the trips and their days.
     Home,
+    /// A day's edit made from its marking and opened in Omnix.
+    ToOmnix(String),
     /// A day's card clicked: its project opened at that day.
     OpenDay(PathBuf, String),
     /// Where the picked tile and the list are, to bring it into view.
@@ -191,6 +193,21 @@ fn make_poster(clip: &std::path::Path, duration: f64, poster: &std::path::Path) 
         .status()
         .is_ok_and(|s| s.success());
     ok && std::fs::rename(&part, poster).is_ok()
+}
+
+/// Omnix's binary, to open an edit in: `OMNIX_BIN`, else on PATH as
+/// `rosmo360`, else a build beside this one's repo (`../omnix-360-studio`).
+fn omnix() -> Option<PathBuf> {
+    if let Some(p) = std::env::var_os("OMNIX_BIN").map(PathBuf::from).filter(|p| p.is_file()) {
+        return Some(p);
+    }
+    if let Some(p) = std::env::var_os("PATH").and_then(|path| std::env::split_paths(&path).map(|d| d.join("rosmo360")).find(|p| p.is_file())) {
+        return Some(p);
+    }
+    // This binary is <repo>/target/release/dailix; Omnix's repo is beside.
+    let exe = std::env::current_exe().ok()?;
+    let repo = exe.parent()?.parent()?.parent()?;
+    Some(repo.parent()?.join("omnix-360-studio/target/release/rosmo360")).filter(|p| p.is_file())
 }
 
 fn clock(t: f64) -> String {
@@ -345,6 +362,20 @@ impl App {
                 self.width = s.width;
             }
             Message::Help => self.help = !self.help,
+            Message::ToOmnix(day) => {
+                self.save_note_now();
+                let Some(root) = self.project.as_ref().map(|p| p.footage.layout.root.clone()) else { return Task::none() };
+                match rosmo360::from_sheet::write(&root, Some(&day)) {
+                    Ok(edit) => match omnix() {
+                        Some(bin) => match std::process::Command::new(&bin).arg(&edit).stdin(std::process::Stdio::null()).spawn() {
+                            Ok(_) => self.error = None,
+                            Err(e) => self.error = Some(format!("{}: {e}", bin.display())),
+                        },
+                        None => self.error = Some(format!("Written {}, but Omnix wasn't found to open it (OMNIX_BIN)", edit.display())),
+                    },
+                    Err(e) => self.error = Some(format!("{e:#}")),
+                }
+            }
             Message::Home => {
                 self.save_note_now();
                 self.pane = pane::Pane::default();
@@ -613,7 +644,12 @@ impl App {
     /// A day: its date, how far it's rated, its story, its clips.
     fn day<'a>(&'a self, p: &'a Project, day: &'a footage::Day) -> Element<'a, Message> {
         let rated = day.clips.iter().filter(|c| p.sheet.clips.get(&c.key).is_some_and(|s| s.rating.is_some())).count();
-        let head = row![text(day.day.clone()).size(18), text(format!("{} clips · {rated} rated", day.clips.len())).size(13).style(text::secondary)].spacing(12).align_y(Alignment::Center);
+        let to_omnix = tooltip(
+            button(text("→ Omnix").size(13)).padding([3, 10]).style(button::secondary).on_press(Message::ToOmnix(day.day.clone())),
+            text("An edit of this day from its marking, opened in Omnix (a new file in 04_project)"),
+            tooltip::Position::Bottom,
+        );
+        let head = row![text(day.day.clone()).size(18), text(format!("{} clips · {rated} rated", day.clips.len())).size(13).style(text::secondary), to_omnix].spacing(12).align_y(Alignment::Center);
         let story: Element<'a, Message> = match self.drafts.get(&day.day) {
             Some(content) => {
                 let d = day.day.clone();
