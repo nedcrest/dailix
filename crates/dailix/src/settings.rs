@@ -27,8 +27,8 @@ pub struct Settings {
     pub last: Option<PathBuf>,
     /// The interface's size; none: as it comes (1.0).
     pub scale: Option<f32>,
-    /// The player pane's width, as dragged.
-    pub pane_width: Option<f32>,
+    /// The player pane's share of the window's width, as dragged.
+    pub pane_share: Option<f32>,
 }
 
 /// The folder of Dailix's settings.
@@ -74,7 +74,7 @@ mod tests {
 
     #[test]
     fn settings_read_back_and_old_files_still_open() {
-        let s = Settings { tmp: Some("/t".into()), projects: Some("/p".into()), sources: Some(Sources::Folder { path: "/s".into() }), last: None, scale: None, pane_width: None };
+        let s = Settings { tmp: Some("/t".into()), projects: Some("/p".into()), sources: Some(Sources::Folder { path: "/s".into() }), last: None, scale: None, pane_share: None };
         let text = serde_json::to_string(&s).unwrap();
         assert!(text.contains(r#""sources":{"kind":"folder","path":"/s"}"#), "{text}");
         assert_eq!(serde_json::from_str::<Settings>(&text).unwrap(), s);

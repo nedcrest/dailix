@@ -26,8 +26,9 @@ use iced::{Alignment, Color, Element, Length, Point, Rectangle, Renderer, Size, 
 use rosmo360::viewer::{Loaded, Viewer};
 use std::sync::{Arc, Mutex};
 
-/// The pane's width at first, and the least it keeps.
-pub const WIDTH: f32 = 600.0;
+/// The pane's share of the window's width at first, and the least width
+/// it keeps.
+pub const SHARE: f32 = 0.4;
 pub const MIN_WIDTH: f32 = 380.0;
 /// How long the pick rests on a clip before the player opens it.
 const REST: std::time::Duration = std::time::Duration::from_millis(250);
@@ -459,7 +460,7 @@ impl App {
         let key = self.pane.key.as_ref()?;
         let name = key.split_once('/').map_or(key.as_str(), |(_, f)| f);
         let to = |m: PaneMsg| Message::Pane(m);
-        let room = self.pane_width - 24.0;
+        let room = self.pane_width() - 24.0;
         let tall = self.height / self.scale;
         let mut top = column![text(name.to_owned()).size(16)].spacing(8);
         match &self.pane.viewer {
@@ -528,7 +529,7 @@ impl App {
         let focused = self.pane.focused;
         Some(
             container(column)
-                .width(self.pane_width)
+                .width(self.pane_width())
                 .height(Length::Fill)
                 .style(move |t: &Theme| {
                     let mut s = container::rounded_box(t);

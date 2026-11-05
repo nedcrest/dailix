@@ -67,7 +67,10 @@ struct App {
     /// The window's width, the player pane's (dragged at its edge, up to
     /// half the window, remembered), and whether its edge is held.
     width: f32,
-    pane_width: f32,
+    /// The pane's share of the window's width (not pixels: a width kept
+    /// from fullscreen took more than half a smaller window, and a click on
+    /// the edge then threw it to the half).
+    pane_share: f32,
     /// While the edge is held: where the pointer was first seen and the
     /// width then. The width follows the pointer's move from there (it was
     /// worked out from the window's right edge, and a width the window
@@ -198,7 +201,7 @@ fn clock(t: f64) -> String {
 impl App {
     fn new(open: Option<PathBuf>) -> (App, Task<Message>) {
         let settings = Settings::load();
-        let mut app = App { project: None, error: None, making: HashSet::new(), drafts: HashMap::new(), dirty: HashSet::new(), selected: None, pane: pane::Pane::default(), height: 920.0, scale: settings.scale.unwrap_or(1.0), width: 1500.0, pane_width: settings.pane_width.unwrap_or(pane::WIDTH), grip: None, help: false, at_home: true, trips: Vec::new(), places: Vec::new(), settings };
+        let mut app = App { project: None, error: None, making: HashSet::new(), drafts: HashMap::new(), dirty: HashSet::new(), selected: None, pane: pane::Pane::default(), height: 920.0, scale: settings.scale.unwrap_or(1.0), width: 1500.0, pane_share: settings.pane_share.unwrap_or(pane::SHARE), grip: None, help: false, at_home: true, trips: Vec::new(), places: Vec::new(), settings };
         // Home first, unless a project was named.
         app.refresh_home();
         let task = match open {
@@ -360,13 +363,13 @@ impl App {
             Message::Pointer(p) => {
                 // Moved left, the pane widens; up to half the window.
                 let Some(grip) = &mut self.grip else { return Task::none() };
-                let (x0, w0) = *grip.get_or_insert((p.x, self.pane_width));
-                let half = (self.width / self.scale / 2.0).max(pane::MIN_WIDTH);
-                self.pane_width = (w0 + x0 - p.x).clamp(pane::MIN_WIDTH, half);
+                let (x0, s0) = *grip.get_or_insert((p.x, self.pane_share));
+                let room = (self.width / self.scale).max(1.0);
+                self.pane_share = (s0 + (x0 - p.x) / room).clamp(pane::MIN_WIDTH / room, 0.5);
             }
             Message::Release => {
                 self.grip = None;
-                self.settings.pane_width = Some(self.pane_width);
+                self.settings.pane_share = Some(self.pane_share);
                 let _ = self.settings.save();
             }
             Message::Placed(p) => {
@@ -527,6 +530,13 @@ impl App {
             }
         }
         Task::none()
+    }
+
+    /// The pane's width now: its share of the window, at least
+    /// `MIN_WIDTH`, at most half.
+    fn pane_width(&self) -> f32 {
+        let room = self.width / self.scale;
+        (self.pane_share * room).clamp(pane::MIN_WIDTH.min(room / 2.0), (room / 2.0).max(pane::MIN_WIDTH))
     }
 
     /// The window, and the keys' list over it when shown. The layer is
