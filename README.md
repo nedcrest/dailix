@@ -6,8 +6,10 @@ takes it off cards and phones, lets you look through it and mark what's
 worth keeping, files the originals away, and hands the chosen material to
 an editor (Omnix, `../omnix-360-studio`). Rust, built the way Omnix is.
 
-Status: the contact sheet's core and a command line work; the window is
-being built. It replaces footage-agent's web contact sheet step by step.
+Status: the contact sheet works (home view, days, rating, segments,
+flags, the player, «→ Omnix»), on a core with a command line; it replaces
+footage-agent's web contact sheet. Bringing footage in is designed
+(`docs/INGEST.md`), not built.
 
 ## Three places
 
@@ -52,7 +54,7 @@ a program keeps lives in `dailix/` beside them.
 <project>/
   01_footage/<day>/<clip>    the clips chosen for this project (copies)
   02_audio/music, 02_audio/voiceover
-  03_proxies/<day>/<clip>    the cameras' own light copies (DJI's LRF)
+  03_proxies/<day>/<clip>    light copies for quick editing (none made yet)
   04_project                 edits: .json for Omnix, .mlt for Kdenlive
   05_export                  finished videos
   06_external                outside video: memes, inserts, transitions

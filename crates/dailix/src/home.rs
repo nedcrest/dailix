@@ -80,7 +80,7 @@ impl App {
             _ => String::new(),
         };
         // The whole project into Omnix (user, 2026-11-05: an empty edit
-        // with all of Kos in the bin, not a day's).
+        // with every day in the bin, not one day's).
         let all = |label: &'static str, msg: Message, hint: &'static str| super::tip(button(text(label).size(13)).padding([3, 10]).style(button::secondary).on_press(msg), text(hint), tooltip::Position::Bottom);
         let name: Element<'a, Message> = match &self.naming {
             Some((root, typed)) if *root == trip.root => text_input("the folder's name", typed).id(NAME).size(18).width(320).on_input(Message::NameEdit).on_submit(Message::NameSave).into(),

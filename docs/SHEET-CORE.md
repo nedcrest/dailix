@@ -133,7 +133,7 @@ pub enum RoleOp { Add { title: String, en: String, hint: String } }   // key mad
 
 ### 6. CLI, schema, a text view
 
-The studio's binary, CLI-only until it has a window:
+The studio's binary, beside its window:
 - `dailix sheet apply <notes.json> <ops.json>`: the ops, checked,
   written; one line per outcome;
 - `dailix sheet describe <notes.json> [--day D]`: a line per mark
@@ -146,7 +146,8 @@ The studio's binary, CLI-only until it has a window:
 
 A Cargo workspace in this repo: `crates/sheet` (the core, a library),
 the studio binary beside it. Omnix depends on the core by path
-(`../dailix/crates/sheet`) and its `notes.rs` goes away. A path
+(`../dailix/crates/sheet`); its `notes.rs` keeps only Omnix's side
+(where a project's sheet is, how a clip is keyed). A path
 across two repos builds locally; if either is ever published, the
 dependency becomes a git or crates.io one.
 

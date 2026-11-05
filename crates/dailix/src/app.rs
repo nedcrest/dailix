@@ -1,9 +1,8 @@
-//! Dailix's window, its first form: a project's days, each with its story
-//! and its clips as tiles (a poster, the name, the length, the rating, how
-//! many segments and flags, the clip's note). Rating a clip and writing a
-//! day's story go through the sheet's core, as everything that changes
-//! the marking does. The player and the segments come next (as Omnix's
-//! bin has them).
+//! Dailix's window: the home view (`home.rs`), and a project's days, each
+//! with its story and its clips as tiles (a poster, the name, the length,
+//! the rating, how many segments and flags, the clip's note), the player
+//! and its marking in the pane at the right (`pane.rs`). Everything that
+//! changes the marking goes through the sheet's core.
 
 #[path = "pane.rs"]
 mod pane;
@@ -64,8 +63,7 @@ struct App {
     height: f32,
     /// The interface's size (Ctrl+= / Ctrl+−), remembered.
     scale: f32,
-    /// The window's width, the player pane's (dragged at its edge, up to
-    /// half the window, remembered), and whether its edge is held.
+    /// The window's width, as last reported.
     width: f32,
     /// The pane's share of the window's width (not pixels: a width kept
     /// from fullscreen took more than half a smaller window, and a click on

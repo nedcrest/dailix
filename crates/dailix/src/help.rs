@@ -33,7 +33,7 @@ pub const GROUPS: [(&str, &[(&str, &str)]); 5] = [
             ("N", "a moment: a segment a second either side (on a flag, its role)"),
             ("O on a picked flag", "the flag becomes a segment to here"),
             ("Page Up / Down", "the mark before / after"),
-            ("Delete", "remove the picked mark"),
+            ("Delete / Backspace", "remove the picked mark"),
             ("drag an edge or a flag", "move it"),
         ],
     ),

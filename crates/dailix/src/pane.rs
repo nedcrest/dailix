@@ -248,7 +248,7 @@ impl App {
                 }
             }
             PaneMsg::Edit(action) => self.pane.editor.perform(action),
-            // Enter: the note saved; the mark is done with, so I, O and F
+            // Enter: the note saved; the mark is done with, so I, O, M and N
             // start the next.
             PaneMsg::Enter => {
                 self.save_note();
