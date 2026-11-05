@@ -17,3 +17,7 @@ rfd.workspace = true
 # needs ALSA's headers (Omnix's own .localdeps on the dev machine).
 rosmo360 = { path = "../../../omnix-360-studio" }
 schemars.workspace = true
+
+# Free space on a disk (statvfs), for the home view's places.
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"

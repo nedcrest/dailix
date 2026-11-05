@@ -46,3 +46,24 @@ fn ops_applied_then_described() {
     assert!(ok && out.is_empty());
     std::fs::remove_dir_all(&dir).unwrap();
 }
+
+#[test]
+fn trips_are_listed_as_the_home_view_sums_them_up() {
+    let base = std::env::temp_dir().join(format!("dailix-cli-trips-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&base);
+    let root = base.join("2030-05_sea");
+    let layout = dailix_sheet::Layout::new(&root);
+    layout.create().unwrap();
+    std::fs::write(layout.project(), "{}").unwrap();
+    std::fs::create_dir_all(layout.analysis().join("2030-05-01")).unwrap();
+    std::fs::write(layout.analysis().join("2030-05-01/A.footage.json"), r#"{"source": "A.MP4", "day": "2030-05-01", "technical": {"duration_s": 4}}"#).unwrap();
+    std::fs::write(layout.sheet(), r#"{"clips": {"2030-05-01/A.MP4": {"rating": 2}}}"#).unwrap();
+    let (ok, out, err) = dailix_run(&["trips", base.to_str().unwrap()]);
+    assert!(ok, "{err}");
+    assert_eq!(out, "2030-05_sea  1 days  1 clips\n  2030-05-01  1 clips  1 rated  no story  project 0/1  sources offline\n");
+    std::fs::remove_dir_all(&base).unwrap();
+}
+
+fn dailix_run(args: &[&str]) -> (bool, String, String) {
+    dailix(args, None)
+}

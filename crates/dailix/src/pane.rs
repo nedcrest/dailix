@@ -181,6 +181,11 @@ impl App {
         self.pane.editor.text().replace('\n', " ").trim().to_owned()
     }
 
+    /// Saves the note being typed, leaving the contact sheet.
+    pub(super) fn save_note_now(&mut self) {
+        self.save_note();
+    }
+
     /// Saves the note typed for the mark the field was filled from, if it
     /// changed.
     fn save_note(&mut self) {

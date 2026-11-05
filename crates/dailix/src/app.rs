@@ -7,6 +7,8 @@
 
 #[path = "pane.rs"]
 mod pane;
+#[path = "home.rs"]
+mod home;
 
 use crate::footage::{self, Footage};
 use crate::settings::Settings;
@@ -73,6 +75,11 @@ struct App {
     grip: Option<Option<(f32, f32)>>,
     /// The keys' list shown (F1).
     help: bool,
+    /// The home view shown (trips and days), rather than a contact sheet;
+    /// its trips and places as last read.
+    at_home: bool,
+    trips: Vec<crate::library::Trip>,
+    places: Vec<crate::library::Place>,
 }
 
 #[derive(Debug, Clone)]
@@ -101,6 +108,10 @@ enum Message {
     Release,
     /// The keys' list shown or hidden (F1).
     Help,
+    /// Home: the trips and their days.
+    Home,
+    /// A day's card clicked: its project opened at that day.
+    OpenDay(PathBuf, String),
     /// Where the picked tile and the list are, to bring it into view.
     Placed(Placement),
     /// The player at the right.
@@ -187,10 +198,14 @@ fn clock(t: f64) -> String {
 impl App {
     fn new(open: Option<PathBuf>) -> (App, Task<Message>) {
         let settings = Settings::load();
-        let mut app = App { project: None, error: None, making: HashSet::new(), drafts: HashMap::new(), dirty: HashSet::new(), selected: None, pane: pane::Pane::default(), height: 920.0, scale: settings.scale.unwrap_or(1.0), width: 1500.0, pane_width: settings.pane_width.unwrap_or(pane::WIDTH), grip: None, help: false, settings };
-        let root = open.or_else(|| app.settings.last.clone());
-        let task = match root {
-            Some(root) => app.load(root),
+        let mut app = App { project: None, error: None, making: HashSet::new(), drafts: HashMap::new(), dirty: HashSet::new(), selected: None, pane: pane::Pane::default(), height: 920.0, scale: settings.scale.unwrap_or(1.0), width: 1500.0, pane_width: settings.pane_width.unwrap_or(pane::WIDTH), grip: None, help: false, at_home: true, trips: Vec::new(), places: Vec::new(), settings };
+        // Home first, unless a project was named.
+        app.refresh_home();
+        let task = match open {
+            Some(root) => {
+                app.at_home = false;
+                app.load(root)
+            }
             None => Task::none(),
         };
         // The window's real size, before any resize says it.
@@ -199,6 +214,9 @@ impl App {
     }
 
     fn title(&self) -> String {
+        if self.at_home {
+            return "Dailix".to_owned();
+        }
         match &self.project {
             Some(p) => format!("Dailix · {}", p.footage.layout.root.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()),
             None => "Dailix".to_owned(),
@@ -324,6 +342,20 @@ impl App {
                 self.width = s.width;
             }
             Message::Help => self.help = !self.help,
+            Message::Home => {
+                self.save_note_now();
+                self.pane = pane::Pane::default();
+                self.selected = None;
+                self.at_home = true;
+                self.refresh_home();
+            }
+            Message::OpenDay(root, day) => {
+                self.at_home = false;
+                let open = if self.project.as_ref().map(|p| &p.footage.layout.root) != Some(&root) { self.load(root) } else { Task::none() };
+                let first = self.project.as_ref().and_then(|p| p.footage.days.iter().find(|d| d.day == day)).and_then(|d| d.clips.first()).map(|c| c.key.clone());
+                let pick = first.map_or_else(Task::none, |k| self.select(k));
+                return Task::batch([open, pick]);
+            }
             Message::Grip => self.grip = Some(None),
             Message::Pointer(p) => {
                 // Moved left, the pane widens; up to half the window.
@@ -400,7 +432,7 @@ impl App {
                         _ => {}
                     }
                 }
-                if mods.command() || mods.alt() {
+                if mods.command() || mods.alt() || self.at_home {
                     return Task::none();
                 }
                 // Tab: the keys go to the player, or back to the tiles.
@@ -462,7 +494,10 @@ impl App {
                     Message::Opened,
                 );
             }
-            Message::Opened(Some(root)) => return self.load(root),
+            Message::Opened(Some(root)) => {
+                self.at_home = false;
+                return self.load(root);
+            }
             Message::Opened(None) => {}
             Message::Rate(clip, rating) => {
                 // The same rating again takes it off, as the sheet does.
@@ -539,9 +574,14 @@ impl App {
         }
         let keys = tooltip(button(text("Keys").size(13)).padding([4, 10]).style(button::secondary).on_press(Message::Help), text("The keys and the mouse (F1)"), tooltip::Position::Bottom);
         let top = top.push(sizes).push(keys).push(open);
+        // Home first in the bar, while a contact sheet is open.
+        let top = if self.at_home { top } else { row![button(text("⌂ Home").size(13)).padding([4, 10]).style(button::secondary).on_press(Message::Home), top].spacing(10).align_y(Alignment::Center) };
         let mut page = column![container(top).padding([10, 16])];
         if let Some(e) = &self.error {
             page = page.push(container(text(e.clone()).size(13).style(text::danger)).padding([0, 16]));
+        }
+        if self.at_home {
+            return page.push(self.home()).into();
         }
         let Some(p) = &self.project else {
             return page.push(container(text("No project open").size(16)).center(Length::Fill)).into();

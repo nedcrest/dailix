@@ -5,6 +5,7 @@ mod app;
 mod footage;
 mod help;
 mod import;
+mod library;
 mod install;
 mod settings;
 
@@ -51,6 +52,9 @@ enum Command {
     },
     /// The icon and a desktop entry, in the menu and on the desktop (Linux).
     Install,
+    /// The trips in the projects place (or in the folder given) as the home
+    /// view sums them up: a line per trip and per day.
+    Trips { projects: Option<PathBuf> },
 }
 
 #[derive(Subcommand)]
@@ -143,6 +147,15 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
                 }
             })?;
             println!("done: {}", plan.layout.root.display());
+            return Ok(());
+        }
+        Command::Trips { projects } => {
+            let projects = projects.or(settings::Settings::load().projects).ok_or("no projects place: dailix places --projects <folder>")?;
+            let (trips, skipped) = library::trips(&projects);
+            print!("{}", library::describe(&trips));
+            for s in skipped {
+                eprintln!("skipped: {s}");
+            }
             return Ok(());
         }
         Command::Install => {

@@ -1,0 +1,194 @@
+//! What the home view shows (UI-RESEARCH 3, 4): the trips, each a Dailix
+//! project in the projects place, as rows of day cards (how many clips,
+//! how many rated, whether the day's story is written, where the files
+//! are), and the places with their state. Only read: the home view
+//! changes nothing (it doesn't even give marks their ids).
+
+use crate::footage;
+use crate::settings::{Settings, Sources};
+use dailix_sheet::{Doc, Layout};
+use std::path::{Path, PathBuf};
+
+/// A day of a trip, summed up.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Day {
+    pub day: String,
+    pub clips: usize,
+    pub rated: usize,
+    /// The day's story is written.
+    pub story: bool,
+    /// The first clip's poster that's made, for the card.
+    pub poster: Option<PathBuf>,
+    /// Its clips found in the project's footage.
+    pub in_project: usize,
+    /// Its folder in the sources: there, missing, or unknown (the sources'
+    /// place offline, or the project names none).
+    pub in_sources: Option<bool>,
+}
+
+/// A trip: a project, its days.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Trip {
+    pub root: PathBuf,
+    pub title: String,
+    pub days: Vec<Day>,
+}
+
+impl Trip {
+    pub fn clips(&self) -> usize {
+        self.days.iter().map(|d| d.clips).sum()
+    }
+}
+
+/// The trips in the projects place `projects`, by name (dated names sort
+/// by date). One that can't be read is left out, said in the second value.
+pub fn trips(projects: &Path) -> (Vec<Trip>, Vec<String>) {
+    let mut out = Vec::new();
+    let mut skipped = Vec::new();
+    let Ok(entries) = std::fs::read_dir(projects) else { return (out, skipped) };
+    let mut roots: Vec<PathBuf> = entries.flatten().map(|e| e.path()).filter(|p| Layout::new(p).is_project()).collect();
+    roots.sort();
+    for root in roots {
+        match trip(&root) {
+            Ok(t) => out.push(t),
+            Err(e) => skipped.push(format!("{}: {e}", root.display())),
+        }
+    }
+    (out, skipped)
+}
+
+/// One trip, read.
+pub fn trip(root: &Path) -> Result<Trip, String> {
+    let layout = Layout::new(root);
+    let (footage, _) = footage::read(&layout).map_err(|e| e.to_string())?;
+    let sheet = std::fs::read_to_string(layout.sheet()).map_err(|e| e.to_string()).and_then(|t| Doc::parse(&t).map_err(|e| e.to_string())).and_then(|d| d.sheet().map_err(|e| e.to_string()))?;
+    let project: Option<serde_json::Value> = std::fs::read(layout.project()).ok().and_then(|b| serde_json::from_slice(&b).ok());
+    let sources = project.as_ref().and_then(|p| p["sources"].as_str()).map(PathBuf::from);
+    let title = root.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    let days = footage
+        .days
+        .iter()
+        .map(|d| Day {
+            day: d.day.clone(),
+            clips: d.clips.len(),
+            rated: d.clips.iter().filter(|c| sheet.clips.get(&c.key).is_some_and(|s| s.rating.is_some())).count(),
+            story: sheet.days.get(&d.day).is_some_and(|n| !n.note.trim().is_empty()),
+            poster: d.clips.iter().map(|c| c.poster.clone()).find(|p| p.is_file()),
+            in_project: d.clips.iter().filter(|c| c.path.is_file()).count(),
+            in_sources: sources.as_ref().filter(|s| s.is_dir()).map(|s| s.join(&d.day).is_dir()),
+        })
+        .collect();
+    Ok(Trip { root: root.to_owned(), title, days })
+}
+
+/// The trips as text, a line per trip and per day: what the home view
+/// shows, for the command line, tests and an AI.
+pub fn describe(trips: &[Trip]) -> String {
+    let mut out = String::new();
+    for t in trips {
+        out.push_str(&format!("{}  {} days  {} clips\n", t.title, t.days.len(), t.clips()));
+        for d in &t.days {
+            let sources = match d.in_sources {
+                Some(true) => "sources",
+                Some(false) => "not in sources",
+                None => "sources offline",
+            };
+            out.push_str(&format!("  {}  {} clips  {} rated  {}  project {}/{}  {sources}\n", d.day, d.clips, d.rated, if d.story { "story" } else { "no story" }, d.in_project, d.clips));
+        }
+    }
+    out
+}
+
+/// A place (TMP, the projects, the sources): where, whether it's there
+/// now, and its free space.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Place {
+    pub name: &'static str,
+    pub path: Option<PathBuf>,
+    pub online: bool,
+    pub free: Option<u64>,
+}
+
+/// The three places as set.
+pub fn places(s: &Settings) -> Vec<Place> {
+    let sources = s.sources.as_ref().map(|Sources::Folder { path }| path.clone());
+    [("TMP", s.tmp.clone()), ("projects", s.projects.clone()), ("sources", sources)]
+        .into_iter()
+        .map(|(name, path)| {
+            let online = path.as_ref().is_some_and(|p| p.is_dir());
+            let free = path.as_deref().filter(|_| online).and_then(free_space);
+            Place { name, path, online, free }
+        })
+        .collect()
+}
+
+/// Free bytes on the disk holding `path` (Unix; none elsewhere, for now).
+#[cfg(unix)]
+pub fn free_space(path: &Path) -> Option<u64> {
+    use std::os::unix::ffi::OsStrExt;
+    let c = std::ffi::CString::new(path.as_os_str().as_bytes()).ok()?;
+    let mut s: libc::statvfs = unsafe { std::mem::zeroed() };
+    // SAFETY: `c` is a NUL-terminated path, `s` a statvfs to fill.
+    (unsafe { libc::statvfs(c.as_ptr(), &mut s) } == 0).then(|| s.f_bavail as u64 * s.f_frsize as u64)
+}
+
+#[cfg(not(unix))]
+pub fn free_space(_: &Path) -> Option<u64> {
+    None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_trip_reads_as_days_with_their_counts_and_places() {
+        let base = std::env::temp_dir().join(format!("dailix-library-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let (projects, sources) = (base.join("projects"), base.join("sources"));
+        let root = projects.join("2030-05_sea");
+        let layout = Layout::new(&root);
+        layout.create().unwrap();
+        std::fs::write(layout.project(), format!(r#"{{"version": 1, "sources": "{}"}}"#, sources.display())).unwrap();
+        std::fs::create_dir_all(sources.join("2030-05-01")).unwrap();
+        let clip = |day: &str, file: &str, on_disk: bool| {
+            let dir = layout.analysis().join(day);
+            std::fs::create_dir_all(&dir).unwrap();
+            let stem = file.split('.').next().unwrap();
+            std::fs::write(dir.join(format!("{stem}.footage.json")), format!(r#"{{"source": "{file}", "day": "{day}", "technical": {{"duration_s": 5}}}}"#)).unwrap();
+            if on_disk {
+                let p = layout.clip(&format!("{day}/{file}"));
+                std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+                std::fs::write(p, b"v").unwrap();
+            }
+        };
+        clip("2030-05-01", "A.MP4", true);
+        clip("2030-05-01", "B.MP4", true);
+        clip("2030-05-02", "C.MP4", false);
+        std::fs::write(layout.sheet(), r#"{"days": {"2030-05-01": {"note": "the sea"}}, "clips": {"2030-05-01/A.MP4": {"rating": 2}, "2030-05-01/B.MP4": {"rating": null}}}"#).unwrap();
+        // Not a project: left out.
+        std::fs::create_dir_all(projects.join("loose")).unwrap();
+
+        let (trips, skipped) = trips(&projects);
+        assert!(skipped.is_empty());
+        assert_eq!(trips.len(), 1);
+        let t = &trips[0];
+        assert_eq!((t.title.as_str(), t.clips()), ("2030-05_sea", 3));
+        let d = &t.days[0];
+        assert_eq!((d.clips, d.rated, d.story, d.in_project, d.in_sources), (2, 1, true, 2, Some(true)));
+        let d = &t.days[1];
+        assert_eq!((d.rated, d.story, d.in_project, d.in_sources), (0, false, 0, Some(false)));
+        // The sheet wasn't written (no ids given).
+        assert!(!std::fs::read_to_string(layout.sheet()).unwrap().contains("\"id\""));
+        assert_eq!(
+            describe(&trips),
+            "2030-05_sea  2 days  3 clips\n  2030-05-01  2 clips  1 rated  story  project 2/2  sources\n  2030-05-02  1 clips  0 rated  no story  project 0/1  not in sources\n"
+        );
+
+        let s = Settings { projects: Some(projects.clone()), sources: Some(Sources::Folder { path: base.join("gone") }), ..Default::default() };
+        let p = places(&s);
+        assert_eq!(p.iter().map(|p| (p.name, p.online)).collect::<Vec<_>>(), [("TMP", false), ("projects", true), ("sources", false)]);
+        assert!(p[1].free.is_some_and(|f| f > 0));
+        std::fs::remove_dir_all(&base).unwrap();
+    }
+}
