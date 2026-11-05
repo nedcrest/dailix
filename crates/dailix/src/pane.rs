@@ -1,7 +1,10 @@
-//! The picked clip at the right of the tiles: Omnix's player (`viewer`),
-//! a strip with the clip's segments in their roles' colours, and the
-//! segments as a list, the picked one's role and note editable. Every
-//! change to the marking goes through the sheet's core, by the mark's id.
+//! The picked clip at the right of the tiles, top to bottom (user's sketch,
+//! 2026-11-05): Omnix's player (`viewer`) and a strip with the clip's marks
+//! in their roles' colours; the marks as a list; an editing plane, the
+//! bottom quarter, for the mark picked or just made; the clip's facts.
+//! Every change to the marking goes through the sheet's core, by the
+//! mark's id. The pane's width is dragged at its edge (to half the
+//! window).
 //!
 //! Keys (the window's, read by their place so any layout works): Space
 //! plays; I and O make a segment (or, inside the picked one, move its
@@ -9,18 +12,20 @@
 //! Delete removes the picked one. A mark just made (F, or O after I) asks
 //! at once for its role (↑ ↓, Enter) and its note (Enter); Esc or Tab
 //! before that takes it away again (user, 2026-11-05: roles had a key each,
-//! which is hard to learn).
+//! which is hard to learn). On the strip a segment's edges and a flag are
+//! dragged.
 
 use super::{App, Message};
 use dailix_sheet::{MarkKind, MarkOp, Op};
 use iced::widget::canvas::{self, Frame, Geometry, Path};
-use iced::widget::{button, column, container, pick_list, row, rule, scrollable, space, text, text_input};
+use iced::widget::{button, column, container, pick_list, row, rule, scrollable, space, text, text_editor};
 use iced::{Alignment, Color, Element, Length, Point, Rectangle, Renderer, Size, Theme, mouse};
 use rosmo360::viewer::{Loaded, Viewer};
 use std::sync::{Arc, Mutex};
 
-/// The pane's width.
+/// The pane's width at first, and the least it keeps.
 pub const WIDTH: f32 = 600.0;
+pub const MIN_WIDTH: f32 = 380.0;
 /// How long the pick rests on a clip before the player opens it.
 const REST: std::time::Duration = std::time::Duration::from_millis(250);
 
@@ -51,28 +56,29 @@ impl std::fmt::Debug for Slot {
     }
 }
 
-/// The pane's state: the clip in the player, the segment picked, an in
-/// point (I) waiting for its O, the picked segment's note as typed, and
+/// The pane's state: the clip in the player and its facts, the mark
+/// picked, an in point (I) waiting for its O, a mark just made being
+/// described, the note's field and the mark it was filled from, and
 /// whether the keys go to the player (Tab) rather than the tiles.
 #[derive(Default)]
 pub struct Pane {
     pub key: Option<String>,
     pub viewer: Option<Viewer>,
     pub loading: bool,
+    pub facts: Option<Result<Vec<(String, String)>, String>>,
     pub picked: Option<String>,
     pub mark_in: Option<f64>,
-    pub note: Option<String>,
-    pub focused: bool,
-    /// A mark just made, being given its role, then its note; Esc or Tab
-    /// before the last Enter takes it away again.
     pub pending: Option<Pending>,
+    pub editor: text_editor::Content,
+    editor_for: Option<String>,
+    pub focused: bool,
 }
 
-/// A new mark's role (the highlighted choice) or note (as typed).
+/// A new mark's stage: its role (the highlighted choice), then its note.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Stage {
     Role(usize),
-    Note(String),
+    Note,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -81,8 +87,8 @@ pub struct Pending {
     pub stage: Stage,
 }
 
-/// The new mark's note field, focused when its role is chosen.
-const NOTE: &str = "new-mark-note";
+/// The note's field, focused when a new mark's role is chosen.
+const NOTE: &str = "mark-note";
 
 /// A role in the pick list.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -108,19 +114,21 @@ pub enum PaneMsg {
     /// The pick rested on this clip: open it.
     Rested(String),
     Loaded(String, Slot),
+    Facts(String, Result<Vec<(String, String)>, String>),
     Tick,
     Toggle,
     Scrub(f64),
     ScrubDone,
     Pick(Option<String>),
+    /// A mark dragged on the strip to here.
+    Moved(String, f64, Option<f64>),
     Role(Option<String>),
-    Note(String),
-    NoteSave,
+    /// The note's field typed in, and Enter in it.
+    Edit(text_editor::Action),
+    Enter,
     Remove,
     /// The new mark's role chosen by a click (its place in the choices).
     PendingRole(usize),
-    PendingNote(String),
-    PendingDone,
 }
 
 impl App {
@@ -138,14 +146,17 @@ impl App {
         iced::Task::perform(super::blocking(|| std::thread::sleep(REST)), move |_| Message::Pane(PaneMsg::Rested(key.clone())))
     }
 
-    /// Opens the clip `key` in the player, off the UI thread, if it's
-    /// still the one in the pane.
+    /// Opens the clip `key` in the player, and reads its facts, off the UI
+    /// thread, if it's still the one in the pane.
     fn load_clip(&mut self, key: String) -> iced::Task<Message> {
         if self.pane.key.as_deref() != Some(key.as_str()) || self.pane.viewer.is_some() {
             return iced::Task::none();
         }
         let Some(path) = self.project.as_ref().map(|p| p.footage.layout.clip(&key)) else { return iced::Task::none() };
-        iced::Task::perform(super::blocking(move || rosmo360::viewer::load(&path).map_err(|e| format!("{e:#}"))), move |r| Message::Pane(PaneMsg::Loaded(key.clone(), Slot(Arc::new(Mutex::new(Some(r)))))))
+        let (k, p) = (key.clone(), path.clone());
+        let facts = iced::Task::perform(super::blocking(move || rosmo360::viewer::describe(&p).map_err(|e| format!("{e:#}"))), move |r| Message::Pane(PaneMsg::Facts(k.clone(), r)));
+        let load = iced::Task::perform(super::blocking(move || rosmo360::viewer::load(&path).map_err(|e| format!("{e:#}"))), move |r| Message::Pane(PaneMsg::Loaded(key.clone(), Slot(Arc::new(Mutex::new(Some(r)))))));
+        iced::Task::batch([load, facts])
     }
 
     pub(super) fn pane_busy(&self) -> bool {
@@ -158,31 +169,45 @@ impl App {
         p.sheet.clips.get(key).map(|c| c.marks.clone()).unwrap_or_default()
     }
 
-    /// Saves the picked segment's note if it was typed.
+    fn mark(&self, id: &str) -> Option<dailix_sheet::Mark> {
+        self.marks().into_iter().find(|m| m.id.as_deref() == Some(id))
+    }
+
+    /// The note's field as typed, one line as the sheet keeps it.
+    fn typed(&self) -> String {
+        self.pane.editor.text().replace('\n', " ").trim().to_owned()
+    }
+
+    /// Saves the note typed for the mark the field was filled from, if it
+    /// changed.
     fn save_note(&mut self) {
-        if let (Some(note), Some(mark)) = (self.pane.note.take(), self.pane.picked.clone()) {
-            self.change(Op::Mark(MarkOp::Note { mark, note }));
+        let Some(id) = self.pane.editor_for.clone() else { return };
+        let typed = self.typed();
+        if self.mark(&id).is_some_and(|m| m.note != typed) {
+            self.change(Op::Mark(MarkOp::Note { mark: id, note: typed }));
+        }
+    }
+
+    /// Fills the note's field from the mark being edited (the new one, or
+    /// the one picked) when that mark changes.
+    fn sync_editor(&mut self) {
+        let now = self.pane.pending.as_ref().map(|p| p.id.clone()).or_else(|| self.pane.picked.clone());
+        if now != self.pane.editor_for {
+            let note = now.as_deref().and_then(|id| self.mark(id)).map(|m| m.note).unwrap_or_default();
+            self.pane.editor = text_editor::Content::with_text(&note);
+            self.pane.editor_for = now;
         }
     }
 
     pub(super) fn on_pane(&mut self, msg: PaneMsg) -> iced::Task<Message> {
+        let task = self.pane_msg(msg);
+        self.sync_editor();
+        task
+    }
+
+    fn pane_msg(&mut self, msg: PaneMsg) -> iced::Task<Message> {
         match msg {
             PaneMsg::Rested(key) => return self.load_clip(key),
-            PaneMsg::PendingRole(i) => return self.pending_role(i),
-            PaneMsg::PendingNote(text) => {
-                if let Some(p) = &mut self.pane.pending {
-                    p.stage = Stage::Note(text);
-                }
-            }
-            PaneMsg::PendingDone => {
-                if let Some(Pending { id, stage: Stage::Note(note) }) = self.pane.pending.take() {
-                    if !note.trim().is_empty() {
-                        self.change(Op::Mark(MarkOp::Note { mark: id, note: note.trim().to_owned() }));
-                    }
-                    // Done with: I, O and F start the next.
-                    self.pane.picked = None;
-                }
-            }
             PaneMsg::Loaded(key, slot) => {
                 if self.pane.key.as_deref() != Some(key.as_str()) {
                     return iced::Task::none();
@@ -192,6 +217,11 @@ impl App {
                     Some(Ok(loaded)) => self.pane.viewer = Some(Viewer::new(loaded)),
                     Some(Err(e)) => self.error = Some(e),
                     None => {}
+                }
+            }
+            PaneMsg::Facts(key, facts) => {
+                if self.pane.key.as_deref() == Some(key.as_str()) {
+                    self.pane.facts = Some(facts);
                 }
             }
             PaneMsg::Tick => {
@@ -215,32 +245,41 @@ impl App {
                 }
             }
             PaneMsg::Pick(id) => {
+                if self.pane.pending.is_some() {
+                    return iced::Task::none();
+                }
                 self.save_note();
                 self.pane.picked = id.clone();
                 self.pane.mark_in = None;
-                if let Some(start) = id.and_then(|id| self.marks().into_iter().find(|m| m.id.as_deref() == Some(id.as_str()))).map(|m| m.t)
+                if let Some(start) = id.and_then(|id| self.mark(&id)).map(|m| m.t)
                     && let Some(v) = &mut self.pane.viewer
                 {
                     v.jump(start);
                 }
+            }
+            PaneMsg::Moved(id, t, end) => {
+                self.change(Op::Mark(MarkOp::Move { mark: id, t, end }));
             }
             PaneMsg::Role(role) => {
                 if let Some(mark) = self.pane.picked.clone() {
                     self.change(Op::Mark(MarkOp::Role { mark, role }));
                 }
             }
-            PaneMsg::Note(text) => self.pane.note = Some(text),
-            // Saved, the segment is done with: I and O start the next.
-            PaneMsg::NoteSave => {
+            PaneMsg::Edit(action) => self.pane.editor.perform(action),
+            // Enter: the note saved; the mark is done with, so I, O and F
+            // start the next.
+            PaneMsg::Enter => {
                 self.save_note();
+                self.pane.pending = None;
                 self.pane.picked = None;
             }
             PaneMsg::Remove => {
                 if let Some(mark) = self.pane.picked.take() {
-                    self.pane.note = None;
+                    self.pane.pending = None;
                     self.change(Op::Mark(MarkOp::Remove { mark }));
                 }
             }
+            PaneMsg::PendingRole(i) => return self.pending_role(i),
         }
         iced::Task::none()
     }
@@ -254,8 +293,10 @@ impl App {
 
     /// A mark just made: its role is asked for at once.
     fn begin_pending(&mut self, made: Option<String>) {
+        self.save_note();
         self.pane.picked = made.clone();
         self.pane.pending = made.map(|id| Pending { id, stage: Stage::Role(0) });
+        self.sync_editor();
     }
 
     /// The new mark's role given (none for the first choice); its note asked
@@ -266,7 +307,7 @@ impl App {
         if role.is_some() {
             self.change(Op::Mark(MarkOp::Role { mark: p.id.clone(), role }));
         }
-        self.pane.pending = Some(Pending { id: p.id, stage: Stage::Note(String::new()) });
+        self.pane.pending = Some(Pending { id: p.id, stage: Stage::Note });
         iced::widget::operation::focus(NOTE)
     }
 
@@ -275,6 +316,8 @@ impl App {
         if let Some(p) = self.pane.pending.take() {
             self.change(Op::Mark(MarkOp::Remove { mark: p.id }));
             self.pane.picked = None;
+            self.pane.editor_for = None;
+            self.sync_editor();
         }
     }
 
@@ -297,7 +340,7 @@ impl App {
     pub(super) fn pane_key(&mut self, code: iced::keyboard::key::Code) -> bool {
         use iced::keyboard::key::Code;
         let now = self.pane.viewer.as_ref().map(Viewer::position);
-        let picked = self.pane.picked.clone().and_then(|id| self.marks().into_iter().find(|m| m.id.as_deref() == Some(id.as_str())));
+        let picked = self.pane.picked.clone().and_then(|id| self.mark(&id));
         match code {
             Code::Space => {
                 if let Some(v) = &mut self.pane.viewer {
@@ -315,6 +358,7 @@ impl App {
                         self.change(Op::Mark(MarkOp::Move { mark: m.id.clone().unwrap_or_default(), t: now, end: m.end }));
                     }
                     _ => {
+                        self.save_note();
                         self.pane.picked = None;
                         self.pane.mark_in = Some(now);
                     }
@@ -372,6 +416,7 @@ impl App {
             }
             _ => return false,
         }
+        self.sync_editor();
         true
     }
 
@@ -380,27 +425,27 @@ impl App {
         let key = self.pane.key.as_ref()?;
         let name = key.split_once('/').map_or(key.as_str(), |(_, f)| f);
         let to = |m: PaneMsg| Message::Pane(m);
-        let mut col = column![text(name.to_owned()).size(16)].spacing(10);
-        let room = WIDTH - 24.0;
+        let room = self.pane_width - 24.0;
+        let tall = self.height / self.scale;
+        let mut top = column![text(name.to_owned()).size(16)].spacing(8);
         match &self.pane.viewer {
             Some(v) => {
-                let h = (room / v.aspect()).min(self.height / self.scale * 0.45);
+                let h = (room / v.aspect()).min(tall * 0.42);
                 let w = h * v.aspect();
                 let picture: Element<'_, Message> = match v.picture() {
                     Some(p) => iced::widget::shader(p).width(w).height(h).into(),
                     None => container(text("…")).width(w).height(h).center_x(w).center_y(h).into(),
                 };
-                col = col.push(container(picture).center_x(Length::Fill));
-                let marks = self.marks();
+                top = top.push(container(picture).center_x(Length::Fill));
                 let strip = Strip {
                     at: v.position(),
                     length: v.duration(),
-                    marks: marks.iter().map(|m| (m.id.clone().unwrap_or_default(), m.t, if m.kind == MarkKind::Segment { m.end } else { None }, colour(m.role.as_deref()))).collect(),
+                    marks: self.marks().iter().map(|m| (m.id.clone().unwrap_or_default(), m.t, if m.kind == MarkKind::Segment { m.end } else { None }, colour(m.role.as_deref()))).collect(),
                     picked: self.pane.picked.clone(),
                     mark_in: self.pane.mark_in,
                 };
-                col = col.push(canvas::Canvas::new(strip).width(Length::Fill).height(30));
-                col = col.push(
+                top = top.push(canvas::Canvas::new(strip).width(Length::Fill).height(36));
+                top = top.push(
                     row![
                         button(text(if v.playing() { "⏸" } else { "▶" }).size(14)).padding([2, 12]).on_press(to(PaneMsg::Toggle)),
                         text(format!("{} / {}", clock(v.position()), clock(v.duration()))).size(13).style(text::secondary),
@@ -409,72 +454,39 @@ impl App {
                     .align_y(Alignment::Center),
                 );
             }
-            None => col = col.push(text(if self.pane.loading { "Opening…" } else { "" }).size(13).style(text::secondary)),
+            None => top = top.push(text(if self.pane.loading { "Opening…" } else { "" }).size(13).style(text::secondary)),
         }
-        col = col.push(rule::horizontal(1));
+
+        // The marks, by time.
+        let mut list = column![].spacing(2);
         let mut marks = self.marks();
         marks.sort_by(|a, b| a.t.total_cmp(&b.t));
         for m in &marks {
             let id = m.id.clone().unwrap_or_default();
             let picked = self.pane.picked.as_deref() == Some(id.as_str());
-            let span = match (m.kind, m.end) {
-                (MarkKind::Segment, Some(e)) => format!("{} – {}", clock(m.t), clock(e)),
-                (MarkKind::Flag, _) => format!("{} ⚑", clock(m.t)),
-                _ => clock(m.t),
-            };
             let c = colour(m.role.as_deref());
             let bar = container(space()).width(4).height(22).style(move |_| container::background(c));
-            let role_name = m.role.as_deref().map(|r| ROLES.iter().find(|x| x.0 == r).map_or(r.to_owned(), |x| x.1.to_owned())).unwrap_or_default();
-            let line = button(row![bar, text(span).size(13).width(150), text(role_name).size(13).width(170), text(m.note.clone()).size(13)].spacing(8).align_y(Alignment::Center))
+            let line = button(row![bar, text(span(m)).size(13).width(140), text(role_name(m.role.as_deref())).size(13).width(160), text(m.note.clone()).size(13)].spacing(8).align_y(Alignment::Center))
                 .width(Length::Fill)
                 .padding([3, 6])
                 .style(if picked { button::secondary } else { button::text })
                 .on_press(to(PaneMsg::Pick(if picked { None } else { Some(id.clone()) })));
-            col = col.push(line);
-            if picked {
-                let none = RoleChoice { key: String::new(), name: "—".to_owned() };
-                let own = self.project.iter().flat_map(|p| p.sheet.roles.iter()).map(|r| RoleChoice { key: r.key.clone(), name: if r.en.is_empty() { r.title.clone() } else { format!("{} / {}", r.title, r.en) } });
-                let choices: Vec<RoleChoice> = std::iter::once(none.clone()).chain(ROLES.iter().map(|r| RoleChoice { key: r.0.to_owned(), name: r.1.to_owned() })).chain(own).collect();
-                let current = m.role.as_ref().and_then(|r| choices.iter().find(|c| &c.key == r).cloned()).unwrap_or(none);
-                let role = pick_list(choices, Some(current), move |r: RoleChoice| to(PaneMsg::Role((!r.key.is_empty()).then_some(r.key)))).text_size(13);
-                let note = text_input("what happens here", self.pane.note.as_deref().unwrap_or(&m.note)).size(13).on_input(move |t| to(PaneMsg::Note(t))).on_submit(to(PaneMsg::NoteSave));
-                let remove = button(text("✕").size(13)).padding([2, 8]).style(button::danger).on_press(to(PaneMsg::Remove));
-                col = col.push(row![role, note, remove].spacing(8).align_y(Alignment::Center));
-            }
+            list = list.push(line);
         }
-        // A new mark being described, below the list, out of its scroll.
-        let pending: Option<Element<'_, Message>> = self.pane.pending.as_ref().map(|p| {
-            let what = self.marks().into_iter().find(|m| m.id.as_deref() == Some(p.id.as_str())).map(|m| match (m.kind, m.end) {
-                (MarkKind::Segment, Some(e)) => format!("New segment {} – {}", clock(m.t), clock(e)),
-                _ => format!("New flag {}", clock(m.t)),
-            });
-            let mut b = column![text(what.unwrap_or_default()).size(14)].spacing(4);
-            match &p.stage {
-                Stage::Role(at) => {
-                    for (i, c) in self.role_choices().into_iter().enumerate() {
-                        let colour = colour(Some(c.key.as_str()).filter(|k| !k.is_empty()));
-                        let bar = container(space()).width(4).height(18).style(move |_| container::background(colour));
-                        b = b.push(
-                            button(row![bar, text(c.name).size(13)].spacing(8).align_y(Alignment::Center))
-                                .width(Length::Fill)
-                                .padding([2, 6])
-                                .style(if i == *at { button::primary } else { button::text })
-                                .on_press(to(PaneMsg::PendingRole(i))),
-                        );
-                    }
-                }
-                Stage::Note(note) => {
-                    b = b.push(text_input("what happens here", note).id(NOTE).size(14).on_input(move |t| to(PaneMsg::PendingNote(t))).on_submit(to(PaneMsg::PendingDone)));
-                }
-            }
-            container(b.padding(10)).style(container::bordered_box).into()
-        });
+
+        let column = column![
+            container(top).padding(12),
+            rule::horizontal(1),
+            scrollable(list.padding([6, 12])).height(Length::Fill),
+            container(self.plane()).height(tall * 0.25).width(Length::Fill).padding(10).style(container::bordered_box),
+            container(self.facts()).width(Length::Fill).padding(10),
+        ]
+        .spacing(6);
         // Outlined while the keys go to it (Tab).
         let focused = self.pane.focused;
-        let body = column![scrollable(col.padding(12)).height(Length::Fill)].push(pending).spacing(6);
         Some(
-            container(body)
-                .width(WIDTH)
+            container(column)
+                .width(self.pane_width)
                 .height(Length::Fill)
                 .style(move |t: &Theme| {
                     let mut s = container::rounded_box(t);
@@ -486,76 +498,245 @@ impl App {
                 .into(),
         )
     }
+
+    /// The editing plane: a new mark's role then note, or the picked
+    /// mark's role, note and delete; empty with neither.
+    fn plane(&self) -> Element<'_, Message> {
+        let to = |m: PaneMsg| Message::Pane(m);
+        let id = self.pane.pending.as_ref().map(|p| p.id.clone()).or_else(|| self.pane.picked.clone());
+        let Some(m) = id.as_deref().and_then(|id| self.mark(id)) else { return space().into() };
+        let title = match (self.pane.pending.is_some(), m.kind) {
+            (true, MarkKind::Flag) => format!("New flag {}", span(&m)),
+            (true, _) => format!("New segment {}", span(&m)),
+            (false, MarkKind::Flag) => format!("Flag {}", span(&m)),
+            (false, _) => format!("Segment {}", span(&m)),
+        };
+        let note = text_editor(&self.pane.editor)
+            .id(NOTE)
+            .placeholder("what happens here")
+            .size(14)
+            .wrapping(text::Wrapping::WordOrGlyph)
+            .on_action(move |a| to(PaneMsg::Edit(a)))
+            .key_binding(|press| match press.key.as_ref() {
+                iced::keyboard::Key::Named(iced::keyboard::key::Named::Enter) => Some(text_editor::Binding::Custom(Message::Pane(PaneMsg::Enter))),
+                _ => text_editor::Binding::from_key_press(press),
+            });
+        let mut b = column![text(title).size(14)].spacing(6);
+        match self.pane.pending.as_ref().map(|p| &p.stage) {
+            // A new mark: the roles unfolded, ↑ ↓ Enter or a click.
+            Some(Stage::Role(at)) => {
+                let mut roles = column![].spacing(1);
+                for (i, c) in self.role_choices().into_iter().enumerate() {
+                    let colour = colour(Some(c.key.as_str()).filter(|k| !k.is_empty()));
+                    let bar = container(space()).width(4).height(18).style(move |_| container::background(colour));
+                    roles = roles.push(
+                        button(row![bar, text(c.name).size(13)].spacing(8).align_y(Alignment::Center))
+                            .width(Length::Fill)
+                            .padding([2, 6])
+                            .style(if i == *at { button::primary } else { button::text })
+                            .on_press(to(PaneMsg::PendingRole(i))),
+                    );
+                }
+                b = b.push(scrollable(roles).height(Length::Fill));
+            }
+            Some(Stage::Note) => b = b.push(scrollable(note).height(Length::Fill)),
+            // A mark picked: its role, its note, delete.
+            None => {
+                let choices = self.role_choices();
+                let current = m.role.as_ref().and_then(|r| choices.iter().find(|c| &c.key == r).cloned()).unwrap_or_else(|| choices[0].clone());
+                let role = pick_list(choices, Some(current), move |r: RoleChoice| to(PaneMsg::Role((!r.key.is_empty()).then_some(r.key)))).text_size(13);
+                let remove = button(text("✕").size(13)).padding([2, 8]).style(button::danger).on_press(to(PaneMsg::Remove));
+                b = b.push(row![role, space().width(Length::Fill), remove].spacing(8).align_y(Alignment::Center));
+                b = b.push(scrollable(note).height(Length::Fill));
+            }
+        }
+        b.into()
+    }
+
+    /// The clip's facts, as Omnix's Info shows them.
+    fn facts(&self) -> Element<'_, Message> {
+        match &self.pane.facts {
+            None => text("…").size(12).style(text::secondary).into(),
+            Some(Err(e)) => text(e.clone()).size(12).style(text::danger).into(),
+            Some(Ok(rows)) => column(rows.iter().map(|(k, v)| row![text(k.clone()).size(12).style(text::secondary).width(90), text(v.clone()).size(12)].spacing(8).into())).spacing(2).into(),
+        }
+    }
+}
+
+/// A mark's place: a segment's span, a flag's time and ⚑.
+fn span(m: &dailix_sheet::Mark) -> String {
+    match (m.kind, m.end) {
+        (MarkKind::Segment, Some(e)) => format!("{} – {}", clock(m.t), clock(e)),
+        (MarkKind::Flag, _) => format!("{} ⚑", clock(m.t)),
+        _ => clock(m.t),
+    }
+}
+
+fn role_name(role: Option<&str>) -> String {
+    role.map(|r| ROLES.iter().find(|x| x.0 == r).map_or(r.to_owned(), |x| x.1.to_owned())).unwrap_or_default()
 }
 
 /// The strip under the player: the clip's length, its playhead, and its
-/// segments and flags in a band at the top (a press there picks one).
+/// marks: segments as bars in a band at the top, flags and points as
+/// poles the strip's full height (seen over a segment). A press in the
+/// band picks a mark; a segment's edge or a pole is dragged; below the
+/// band a drag scrubs.
 pub struct Strip {
     pub at: f64,
     pub length: f64,
-    /// Id, start, end (none for a point or a flag), colour.
+    /// Id, start, end (none for a flag or a point), colour.
     pub marks: Vec<(String, f64, Option<f64>, Color)>,
     pub picked: Option<String>,
-    /// An in point (I) waiting for its O, drawn as a little flag.
+    /// An in point (I) waiting for its O.
     pub mark_in: Option<f64>,
 }
 
-/// The band's height, and how near a point a press picks it.
-const BAND: f32 = 12.0;
+/// The band's height; how near an edge or a pole a press takes it.
+const BAND: f32 = 14.0;
 const NEAR: f32 = 5.0;
 
+/// What a drag on the strip is doing.
+#[derive(Default)]
+pub enum Drag {
+    #[default]
+    None,
+    Scrub,
+    /// A mark's edge or pole: the mark, which part, where it is now.
+    Mark { id: String, part: Part, t: f64, moved: bool },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Part {
+    Start,
+    End,
+    Pole,
+}
+
 impl Strip {
+    fn px(&self, t: f64, width: f32) -> f32 {
+        (t / self.length.max(1e-9)).clamp(0.0, 1.0) as f32 * width
+    }
+
+    /// The edge or pole under `x`, if any.
+    fn handle_at(&self, x: f32, width: f32) -> Option<(String, Part)> {
+        self.marks.iter().find_map(|(id, s, e, _)| match e {
+            Some(_) if (x - self.px(*s, width)).abs() <= NEAR => Some((id.clone(), Part::Start)),
+            Some(e) if (x - self.px(*e, width)).abs() <= NEAR => Some((id.clone(), Part::End)),
+            None if (x - self.px(*s, width)).abs() <= NEAR => Some((id.clone(), Part::Pole)),
+            _ => None,
+        })
+    }
+
     /// The segment under `x`: the shortest there, so one inside another
-    /// can be picked; a point within `NEAR`.
+    /// can be picked.
     fn mark_at(&self, x: f32, width: f32) -> Option<String> {
-        let px = |t: f64| (t / self.length.max(1e-9)) as f32 * width;
         self.marks
             .iter()
-            .filter(|(_, s, e, _)| match e {
-                Some(e) => x >= px(*s) - 2.0 && x <= px(*e) + 2.0,
-                None => (x - px(*s)).abs() <= NEAR,
-            })
+            .filter(|(_, s, e, _)| e.is_some_and(|e| x >= self.px(*s, width) && x <= self.px(e, width)))
             .min_by(|a, b| a.2.map_or(0.0, |e| e - a.1).total_cmp(&b.2.map_or(0.0, |e| e - b.1)))
             .map(|m| m.0.clone())
+    }
+
+    /// A mark's start and end as drawn: as the sheet has it, or where the
+    /// drag holds it.
+    fn shown(&self, id: &str, s: f64, e: Option<f64>, drag: &Drag) -> (f64, Option<f64>) {
+        match drag {
+            Drag::Mark { id: d, part, t, .. } if d == id => match part {
+                Part::Start => (t.min(e.unwrap_or(*t) - 0.2), e),
+                Part::End => (s, Some(t.max(s + 0.2))),
+                Part::Pole => (*t, None),
+            },
+            _ => (s, e),
+        }
     }
 }
 
 impl canvas::Program<Message> for Strip {
-    type State = bool;
+    type State = Drag;
 
-    fn update(&self, dragging: &mut bool, event: &iced::Event, bounds: Rectangle, cursor: mouse::Cursor) -> Option<canvas::Action<Message>> {
+    fn update(&self, drag: &mut Drag, event: &iced::Event, bounds: Rectangle, cursor: mouse::Cursor) -> Option<canvas::Action<Message>> {
         let time = |x: f32| (((x - bounds.x) / bounds.width).clamp(0.0, 1.0) as f64) * self.length;
         let to = |m: PaneMsg| canvas::Action::publish(Message::Pane(m)).and_capture();
         match event {
             iced::Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) => {
                 let p = cursor.position_over(bounds)?;
-                if p.y - bounds.y < BAND {
-                    return Some(to(PaneMsg::Pick(self.mark_at(p.x - bounds.x, bounds.width))));
+                let x = p.x - bounds.x;
+                // An edge or a pole: picked, and dragged.
+                if let Some((id, part)) = self.handle_at(x, bounds.width) {
+                    let t = self.marks.iter().find(|m| m.0 == id).map_or(0.0, |m| if part == Part::End { m.2.unwrap_or(m.1) } else { m.1 });
+                    *drag = Drag::Mark { id: id.clone(), part, t, moved: false };
+                    return Some(to(PaneMsg::Pick(Some(id))));
                 }
-                *dragging = true;
+                if p.y - bounds.y < BAND {
+                    return Some(to(PaneMsg::Pick(self.mark_at(x, bounds.width))));
+                }
+                *drag = Drag::Scrub;
                 Some(to(PaneMsg::Scrub(time(p.x))))
             }
-            iced::Event::Mouse(mouse::Event::CursorMoved { position }) if *dragging => Some(to(PaneMsg::Scrub(time(position.x)))),
-            iced::Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)) if *dragging => {
-                *dragging = false;
-                Some(to(PaneMsg::ScrubDone))
+            iced::Event::Mouse(mouse::Event::CursorMoved { position }) => match drag {
+                Drag::Scrub => Some(to(PaneMsg::Scrub(time(position.x)))),
+                Drag::Mark { t, moved, .. } => {
+                    *t = time(position.x);
+                    *moved = true;
+                    Some(canvas::Action::request_redraw().and_capture())
+                }
+                Drag::None => None,
+            },
+            iced::Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)) => {
+                let done = std::mem::take(drag);
+                match &done {
+                    Drag::Scrub => Some(to(PaneMsg::ScrubDone)),
+                    // Moved: the mark where the drag left it, one change.
+                    Drag::Mark { id, moved: true, .. } => {
+                        let (s, e) = self.marks.iter().find(|m| &m.0 == id).map(|m| (m.1, m.2)).unwrap_or_default();
+                        let (t, end) = self.shown(id, s, e, &done);
+                        Some(to(PaneMsg::Moved(id.clone(), t, end)))
+                    }
+                    _ => None,
+                }
             }
             _ => None,
         }
     }
 
-    fn draw(&self, _: &bool, renderer: &Renderer, theme: &Theme, bounds: Rectangle, _: mouse::Cursor) -> Vec<Geometry> {
+    fn draw(&self, drag: &Drag, renderer: &Renderer, theme: &Theme, bounds: Rectangle, _: mouse::Cursor) -> Vec<Geometry> {
         let mut frame = Frame::new(renderer, bounds.size());
         let palette = theme.extended_palette();
         let (w, h) = (bounds.width, bounds.height);
-        let px = |t: f64| if self.length > 0.0 { (t / self.length).clamp(0.0, 1.0) as f32 * w } else { 0.0 };
+        let px = |t: f64| self.px(t, w);
+        // The bar and the playhead first: the marks are drawn over them.
+        let bar = (h - BAND) * 0.4;
+        let top = BAND + (h - BAND - bar) / 2.0;
+        frame.fill(&Path::rounded_rectangle(Point::new(0.0, top), Size::new(w, bar), (bar / 2.0).into()), palette.background.strong.color);
+        let x = px(self.at);
+        frame.fill(&Path::rounded_rectangle(Point::new(0.0, top), Size::new(x.max(bar), bar), (bar / 2.0).into()), palette.primary.base.color);
         for (id, s, e, c) in &self.marks {
             let picked = self.picked.as_deref() == Some(id.as_str());
-            let (x0, x1) = (px(*s), e.map_or(px(*s) + 3.0, px));
-            let top = if picked { 0.0 } else { 3.0 };
-            frame.fill(&Path::rectangle(Point::new(x0, top), Size::new((x1 - x0).max(3.0), BAND - 2.0 - top)), *c);
-            if picked {
-                frame.fill(&Path::rectangle(Point::new(x0, BAND), Size::new((x1 - x0).max(3.0), h - BAND)), Color { a: 0.25, ..*c });
+            let (s, e) = self.shown(id, *s, *e, drag);
+            match e {
+                Some(e) => {
+                    let (x0, x1) = (px(s), px(e));
+                    let top = if picked { 0.0 } else { 3.0 };
+                    frame.fill(&Path::rectangle(Point::new(x0, top), Size::new((x1 - x0).max(3.0), BAND - 2.0 - top)), *c);
+                    if picked {
+                        frame.fill(&Path::rectangle(Point::new(x0, BAND), Size::new((x1 - x0).max(3.0), h - BAND)), Color { a: 0.25, ..*c });
+                    }
+                }
+                // A flag or a point: a pole the strip's height and a little
+                // flag at its top, so it shows over a segment too.
+                None => {
+                    let x = px(s);
+                    frame.fill(&Path::rectangle(Point::new(x - 1.0, 0.0), Size::new(if picked { 3.0 } else { 2.0 }, h)), *c);
+                    frame.fill(
+                        &Path::new(|b| {
+                            b.move_to(Point::new(x, 0.0));
+                            b.line_to(Point::new(x + 8.0, 3.5));
+                            b.line_to(Point::new(x, 7.0));
+                            b.close();
+                        }),
+                        *c,
+                    );
+                }
             }
         }
         if let Some(t) = self.mark_in {
@@ -570,16 +751,18 @@ impl canvas::Program<Message> for Strip {
                 palette.primary.strong.color,
             );
         }
-        let bar = (h - BAND) * 0.4;
-        let top = BAND + (h - BAND - bar) / 2.0;
-        frame.fill(&Path::rounded_rectangle(Point::new(0.0, top), Size::new(w, bar), (bar / 2.0).into()), palette.background.strong.color);
-        let x = px(self.at);
-        frame.fill(&Path::rounded_rectangle(Point::new(0.0, top), Size::new(x.max(bar), bar), (bar / 2.0).into()), palette.primary.base.color);
         frame.fill(&Path::rectangle(Point::new((x - 1.0).clamp(0.0, w - 2.0), BAND), Size::new(2.0, h - BAND)), Color::WHITE);
         vec![frame.into_geometry()]
     }
 
-    fn mouse_interaction(&self, dragging: &bool, bounds: Rectangle, cursor: mouse::Cursor) -> mouse::Interaction {
-        if *dragging || cursor.is_over(bounds) { mouse::Interaction::Pointer } else { mouse::Interaction::default() }
+    fn mouse_interaction(&self, drag: &Drag, bounds: Rectangle, cursor: mouse::Cursor) -> mouse::Interaction {
+        let on_handle = cursor.position_over(bounds).and_then(|p| self.handle_at(p.x - bounds.x, bounds.width)).is_some();
+        match drag {
+            Drag::Mark { .. } => mouse::Interaction::ResizingHorizontally,
+            _ if on_handle => mouse::Interaction::ResizingHorizontally,
+            Drag::Scrub => mouse::Interaction::Pointer,
+            Drag::None if cursor.is_over(bounds) => mouse::Interaction::Pointer,
+            Drag::None => mouse::Interaction::default(),
+        }
     }
 }

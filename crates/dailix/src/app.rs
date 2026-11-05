@@ -62,6 +62,11 @@ struct App {
     height: f32,
     /// The interface's size (Ctrl+= / Ctrl+−), remembered.
     scale: f32,
+    /// The window's width, the player pane's (dragged at its edge, up to
+    /// half the window, remembered), and whether its edge is held.
+    width: f32,
+    pane_width: f32,
+    gripping: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -83,6 +88,11 @@ enum Message {
     Key(iced::keyboard::Key, iced::keyboard::key::Physical, iced::keyboard::Modifiers, bool),
     /// The text's size, a step bigger (1), smaller (-1), or as it was (0).
     Scale(i32),
+    /// The player pane's edge pressed; the pointer moved (where, in the
+    /// window); the mouse button let go.
+    Grip,
+    Pointer(iced::Point),
+    Release,
     /// Where the picked tile and the list are, to bring it into view.
     Placed(Placement),
     /// The player at the right.
@@ -169,7 +179,7 @@ fn clock(t: f64) -> String {
 impl App {
     fn new(open: Option<PathBuf>) -> (App, Task<Message>) {
         let settings = Settings::load();
-        let mut app = App { project: None, error: None, making: HashSet::new(), drafts: HashMap::new(), dirty: HashSet::new(), selected: None, pane: pane::Pane::default(), height: 920.0, scale: settings.scale.unwrap_or(1.0), settings };
+        let mut app = App { project: None, error: None, making: HashSet::new(), drafts: HashMap::new(), dirty: HashSet::new(), selected: None, pane: pane::Pane::default(), height: 920.0, scale: settings.scale.unwrap_or(1.0), width: 1500.0, pane_width: settings.pane_width.unwrap_or(pane::WIDTH), gripping: false, settings };
         let root = open.or_else(|| app.settings.last.clone());
         let task = match root {
             Some(root) => app.load(root),
@@ -247,6 +257,17 @@ impl App {
             iced::Event::Keyboard(iced::keyboard::Event::KeyPressed { key, physical_key, modifiers, .. }) => Some(Message::Key(key, physical_key, modifiers, status == iced::event::Status::Captured)),
             _ => None,
         });
+        // The pointer, only while the pane's edge is held.
+        let grip = if self.gripping {
+            iced::event::listen_with(|e, _, _| match e {
+                iced::Event::Mouse(iced::mouse::Event::CursorMoved { position }) => Some(Message::Pointer(position)),
+                iced::Event::Mouse(iced::mouse::Event::ButtonReleased(iced::mouse::Button::Left)) => Some(Message::Release),
+                _ => None,
+            })
+        } else {
+            iced::Subscription::none()
+        };
+        let keys = iced::Subscription::batch([keys, grip]);
         let size = iced::window::resize_events().map(|(_, s)| Message::Resized(s));
         // The player's frames, every screen frame while it plays or seeks.
         if self.pane_busy() {
@@ -288,7 +309,22 @@ impl App {
         match message {
             Message::Select(key) => return self.select(key),
             Message::Pane(msg) => return self.on_pane(msg),
-            Message::Resized(s) => self.height = s.height,
+            Message::Resized(s) => {
+                self.height = s.height;
+                self.width = s.width;
+            }
+            Message::Grip => self.gripping = true,
+            Message::Pointer(p) => {
+                // The pane's left edge follows the pointer: as wide as the
+                // window's right part, up to half the window.
+                let room = self.width / self.scale;
+                self.pane_width = (room - p.x - 10.0).clamp(pane::MIN_WIDTH, (room / 2.0).max(pane::MIN_WIDTH));
+            }
+            Message::Release => {
+                self.gripping = false;
+                self.settings.pane_width = Some(self.pane_width);
+                let _ = self.settings.save();
+            }
             Message::Placed(p) => {
                 // Scrolled only as far as needed, with a margin.
                 let (top, bottom) = (p.tile.y - p.content.y, p.tile.y - p.content.y + p.tile.height);
@@ -457,7 +493,10 @@ impl App {
         }
         let list = scrollable(days).id(LIST).height(Length::Fill).width(Length::Fill);
         match self.pane() {
-            Some(pane) => page.push(row![list, pane].spacing(8).padding(iced::Padding { right: 8.0, bottom: 8.0, ..Default::default() })).into(),
+            Some(pane) => {
+                let grip = iced::widget::mouse_area(container(rule::vertical(2)).width(8).height(Length::Fill).center_x(8)).on_press(Message::Grip).interaction(iced::mouse::Interaction::ResizingHorizontally);
+                page.push(row![list, grip, pane].spacing(2).padding(iced::Padding { right: 8.0, bottom: 8.0, ..Default::default() })).into()
+            }
             None => page.push(list).into(),
         }
     }
