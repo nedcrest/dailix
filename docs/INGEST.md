@@ -159,20 +159,17 @@ for the tests and an AI:
 6. Filing away and freeing TMP; the home view's "only in TMP".
 7. Docs.
 
-## Decisions for the user
+## Decided (user, 2026-11-05)
 
-1. **When does a day go to the sources**: right after the copy to TMP
-   is verified (the originals safe in the archive at once, choosing
-   later), or after choosing, as the user first said? My pick: right
-   away. The archive is where a card's only other copy belongs, and
-   choosing can take weeks; the contact sheet reads from either.
-2. **What the project gets**: every clip of its days, or only the chosen
-   (✓ and ?, and any with segments)? My pick: only the chosen; the
-   sources keep everything, so nothing is lost.
-3. **Photos**: brought in too (phone and camera photos of the trip,
-   into the sources), or video and sound only for now? My pick: in, to
-   the sources, not yet shown in the sheet.
-4. **A trip's time zone**: set on the trip (suggested from the phone's
-   clips, which carry the local offset)? My pick: yes.
-5. **Two copies**: later, as planned; the catalogue and manifests are
-   made ready for it now.
+1. A day goes to the sources right after its copy to TMP is verified;
+   choosing comes after, from either place.
+2. A project gets only the chosen clips (✓ and ?, and any with
+   segments); the sources keep everything.
+3. Photos come in too, into the sources; not shown in the sheet yet.
+4. A trip has a time zone, suggested from the phone's clips (they carry
+   the local offset) where it can be.
+5. A second copy later; the catalogue and manifests are made ready for
+   it now.
+
+Implementation deferred by the user (2026-11-05): Kos is marked and its
+edit goes on in Omnix; this design waits for its turn.
