@@ -337,104 +337,69 @@ impl App {
 
     /// The pane's keys: whether `code` was one of them.
     pub(super) fn pane_key(&mut self, code: iced::keyboard::key::Code) -> bool {
+        use dailix_sheet::marking::{self, At, Does, Key, Made};
         use iced::keyboard::key::Code;
-        let now = self.pane.viewer.as_ref().map(Viewer::position);
-        let picked = self.pane.picked.clone().and_then(|id| self.mark(&id));
-        match code {
+        let key = match code {
             Code::Space => {
                 if let Some(v) = &mut self.pane.viewer {
                     v.toggle();
                 }
+                return true;
             }
-            // I inside the picked segment moves its start; anywhere else it
-            // sets an in point for O. Never stretches a segment the
-            // playhead isn't in (it did: one finished further on grew back
-            // to an I set earlier in the clip).
-            Code::KeyI => {
-                let Some(now) = now else { return true };
-                match picked {
-                    Some(m) if m.kind == MarkKind::Segment && m.end.is_some_and(|e| now >= m.t && now < e) => {
-                        self.change(Op::Mark(MarkOp::Move { mark: m.id.clone().unwrap_or_default(), t: now, end: m.end }));
-                    }
-                    _ => {
-                        self.save_note();
-                        self.pane.picked = None;
-                        self.pane.mark_in = Some(now);
-                    }
-                }
-            }
-            // O inside the picked segment moves its end; after an I, a
-            // segment from there; on a flag picked, the flag becomes a
-            // segment to here (its role and note kept). Else nothing: no
-            // start.
-            Code::KeyO => {
-                let Some(now) = now else { return true };
-                let Some(clip) = self.pane.key.clone() else { return true };
-                match (picked, self.pane.mark_in) {
-                    (Some(m), _) if m.kind == MarkKind::Segment && m.end.is_some_and(|e| now > m.t && now <= e) => {
-                        self.change(Op::Mark(MarkOp::Move { mark: m.id.clone().unwrap_or_default(), t: m.t, end: Some(now) }));
-                    }
-                    (_, Some(start)) => {
-                        self.pane.mark_in = None;
-                        let made = self.change(Op::Mark(MarkOp::Add { clip, t: start.min(now), end: Some(start.max(now)), flag: false, role: None, note: String::new() }));
-                        self.begin_pending(made);
-                    }
-                    (Some(f), None) if f.kind == MarkKind::Flag && now > f.t => {
-                        let add = Op::Mark(MarkOp::Add { clip, t: f.t, end: Some(now), flag: false, role: f.role.clone(), note: f.note.clone() });
-                        self.pane.picked = self.change_all(vec![Op::Mark(MarkOp::Remove { mark: f.id.clone().unwrap_or_default() }), add]);
-                    }
-                    _ => self.error = Some("No start for a segment: set one with I first".to_owned()),
-                }
-            }
-            // M: a flag here, a note to self (a meme to find, a sound); M
-            // as Omnix's marker key, and the trade's (user, 2026-11-05).
-            Code::KeyM => {
-                let (Some(now), Some(clip)) = (now, self.pane.key.clone()) else { return true };
-                self.pane.mark_in = None;
-                let made = self.change(Op::Mark(MarkOp::Add { clip, t: now, end: None, flag: true, role: None, note: String::new() }));
-                self.begin_pending(made);
-            }
-            // N: a moment, a segment a second either side of the playhead,
-            // to stretch by its edges: material, where a flag is a note.
-            // On a flag (picked, or at the playhead), the moment takes its
-            // role, offered first (user, 2026-11-05).
-            Code::KeyN => {
-                let (Some(now), Some(clip)) = (now, self.pane.key.clone()) else { return true };
-                let length = self.pane.viewer.as_ref().map_or(f64::INFINITY, Viewer::duration);
-                let frame = 0.15;
-                let flag = picked.filter(|m| m.kind == MarkKind::Flag).or_else(|| self.marks().into_iter().find(|m| m.kind == MarkKind::Flag && (m.t - now).abs() <= frame));
-                let role = flag.and_then(|f| f.role);
-                self.pane.mark_in = None;
-                let made = self.change(Op::Mark(MarkOp::Add { clip, t: (now - 1.0).max(0.0), end: Some((now + 1.0).min(length)), flag: false, role: role.clone(), note: String::new() }));
-                self.begin_pending(made);
-                if let Some(role) = role {
-                    let at = self.role_choices_index(&role);
-                    if let Some(p) = &mut self.pane.pending {
-                        p.stage = Stage::Role(at);
-                    }
-                }
-            }
-            // Page Up / Down: to the mark before or after, picked.
-            Code::PageUp | Code::PageDown => {
-                let mut marks = self.marks();
-                marks.sort_by(|a, b| a.t.total_cmp(&b.t));
-                let from = picked.map_or(now.unwrap_or(0.0), |m| m.t);
-                let next = if code == Code::PageDown { marks.into_iter().find(|m| m.t > from + 1e-3) } else { marks.into_iter().rev().find(|m| m.t < from - 1e-3) };
-                if let Some(m) = next {
-                    self.save_note();
-                    self.pane.picked = m.id.clone();
-                    self.pane.mark_in = None;
-                    if let Some(v) = &mut self.pane.viewer {
-                        v.jump(m.t);
-                    }
-                }
-            }
-            Code::Delete | Code::Backspace => {
-                if let Some(mark) = self.pane.picked.take() {
-                    self.change(Op::Mark(MarkOp::Remove { mark }));
-                }
-            }
+            Code::KeyI => Key::In,
+            Code::KeyO => Key::Out,
+            // M as Omnix's marker key, and the trade's (user, 2026-11-05).
+            Code::KeyM => Key::Flag,
+            Code::KeyN => Key::Moment,
+            Code::PageUp => Key::Prev,
+            Code::PageDown => Key::Next,
+            Code::Delete | Code::Backspace => Key::Delete,
             _ => return false,
+        };
+        // What the key does is the core's (`marking`, tested); here it's
+        // carried out.
+        // Marks are made at the playhead: none before the clip is loaded.
+        let playhead = self.pane.viewer.as_ref().map(|v| (v.position(), v.duration()));
+        let Some(clip) = self.pane.key.clone().filter(|_| playhead.is_some() || matches!(key, Key::Prev | Key::Next | Key::Delete)) else { return true };
+        let (now, length) = playhead.unwrap_or((0.0, f64::INFINITY));
+        let marks = self.marks();
+        let at = At { clip: &clip, marks: &marks, picked: self.pane.picked.as_deref(), mark_in: self.pane.mark_in, now, length };
+        match marking::key(&at, key) {
+            Does::Change { ops, made } => {
+                if made == Made::Unpick {
+                    self.pane.picked = None;
+                }
+                let new = self.change_all(ops);
+                match made {
+                    Made::Ask { offer } => {
+                        self.pane.mark_in = None;
+                        self.begin_pending(new);
+                        if let (Some(role), true) = (offer, self.pane.pending.is_some()) {
+                            let i = self.role_choices_index(&role);
+                            if let Some(p) = &mut self.pane.pending {
+                                p.stage = Stage::Role(i);
+                            }
+                        }
+                    }
+                    Made::Pick => self.pane.picked = new,
+                    Made::Keep | Made::Unpick => {}
+                }
+            }
+            Does::InPoint(t) => {
+                self.save_note();
+                self.pane.picked = None;
+                self.pane.mark_in = Some(t);
+            }
+            Does::Go { mark, t } => {
+                self.save_note();
+                self.pane.picked = Some(mark);
+                self.pane.mark_in = None;
+                if let Some(v) = &mut self.pane.viewer {
+                    v.jump(t);
+                }
+            }
+            Does::No(why) => self.error = Some(why.to_owned()),
+            Does::Nothing => {}
         }
         self.sync_editor();
         true
