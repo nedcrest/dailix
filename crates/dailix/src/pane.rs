@@ -294,6 +294,11 @@ impl App {
         std::iter::once(none).chain(ROLES.iter().map(|r| RoleChoice { key: r.0.to_owned(), name: r.1.to_owned() })).chain(own).collect()
     }
 
+    /// Where `role` is among the choices (none: the first).
+    fn role_choices_index(&self, role: &str) -> usize {
+        self.role_choices().iter().position(|c| c.key == role).unwrap_or(0)
+    }
+
     /// A mark just made: its role is asked for at once.
     fn begin_pending(&mut self, made: Option<String>) {
         self.save_note();
@@ -399,12 +404,23 @@ impl App {
             }
             // M: a moment, a segment a second either side of the playhead,
             // to stretch by its edges: material, where F is a note.
+            // On a flag (picked, or at the playhead), the moment takes its
+            // role, offered first (user, 2026-11-05).
             Code::KeyM => {
                 let (Some(now), Some(clip)) = (now, self.pane.key.clone()) else { return true };
                 let length = self.pane.viewer.as_ref().map_or(f64::INFINITY, Viewer::duration);
+                let frame = 0.15;
+                let flag = picked.filter(|m| m.kind == MarkKind::Flag).or_else(|| self.marks().into_iter().find(|m| m.kind == MarkKind::Flag && (m.t - now).abs() <= frame));
+                let role = flag.and_then(|f| f.role);
                 self.pane.mark_in = None;
-                let made = self.change(Op::Mark(MarkOp::Add { clip, t: (now - 1.0).max(0.0), end: Some((now + 1.0).min(length)), flag: false, role: None, note: String::new() }));
+                let made = self.change(Op::Mark(MarkOp::Add { clip, t: (now - 1.0).max(0.0), end: Some((now + 1.0).min(length)), flag: false, role: role.clone(), note: String::new() }));
                 self.begin_pending(made);
+                if let Some(role) = role {
+                    let at = self.role_choices_index(&role);
+                    if let Some(p) = &mut self.pane.pending {
+                        p.stage = Stage::Role(at);
+                    }
+                }
             }
             // Page Up / Down: to the mark before or after, picked.
             Code::PageUp | Code::PageDown => {
