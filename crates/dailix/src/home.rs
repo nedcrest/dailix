@@ -68,14 +68,25 @@ impl App {
         row(self.places.iter().map(chip)).spacing(8).align_y(Alignment::Center).into()
     }
 
-    /// A trip: its name, its dates, its days as cards.
+    /// A trip: its name, its dates, its edits of every day, its days as
+    /// cards.
     fn trip_row<'a>(&'a self, trip: &'a Trip) -> Element<'a, Message> {
         let dates = match (trip.days.first(), trip.days.last()) {
             (Some(a), Some(b)) if a.day != b.day => format!("{} – {}", a.day, b.day),
             (Some(a), _) => a.day.clone(),
             _ => String::new(),
         };
-        let head = row![text(trip.title.clone()).size(18), text(format!("{dates} · {} days · {} clips", trip.days.len(), trip.clips())).size(13).style(text::secondary)].spacing(12).align_y(Alignment::Center);
+        // The whole project into Omnix (user, 2026-11-05: an empty edit
+        // with all of Kos in the bin, not a day's).
+        let all = |label: &'static str, msg: Message, hint: &'static str| super::tip(button(text(label).size(13)).padding([3, 10]).style(button::secondary).on_press(msg), text(hint), tooltip::Position::Bottom);
+        let head = row![
+            text(trip.title.clone()).size(18),
+            text(format!("{dates} · {} days · {} clips", trip.days.len(), trip.clips())).size(13).style(text::secondary),
+            all("→ Omnix (all days)", Message::ToOmnix(trip.root.clone(), None), "An edit of every day from its marking, opened in Omnix"),
+            all("Empty edit", Message::EmptyDay(trip.root.clone(), None), "An empty edit in Omnix, every day's clips in its bin"),
+        ]
+        .spacing(12)
+        .align_y(Alignment::Center);
         let cards = iced::widget::row(trip.days.iter().map(|d| self.day_card(trip, d))).spacing(10).wrap().vertical_spacing(10);
         column![head, cards].spacing(10).into()
     }
@@ -106,8 +117,8 @@ impl App {
         // The day straight into Omnix: its edit from the marking, or empty.
         let small = |label: &'static str, msg: Message, hint: &'static str| super::tip(button(text(label).size(12)).padding([2, 8]).style(button::secondary).on_press(msg), text(hint), tooltip::Position::Bottom);
         let actions = row![
-            small("→ Omnix", Message::ToOmnix(trip.root.clone(), d.day.clone()), "An edit of this day from its marking, opened in Omnix"),
-            small("Empty day", Message::EmptyDay(trip.root.clone(), d.day.clone()), "An empty edit of this day in Omnix, its clips in the bin"),
+            small("→ Omnix", Message::ToOmnix(trip.root.clone(), Some(d.day.clone())), "An edit of this day from its marking, opened in Omnix"),
+            small("Empty day", Message::EmptyDay(trip.root.clone(), Some(d.day.clone())), "An empty edit of this day in Omnix, its clips in the bin"),
         ]
         .spacing(6);
         container(column![open, actions].spacing(6).width(CARD)).padding(6).style(container::rounded_box).into()
