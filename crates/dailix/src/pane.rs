@@ -465,8 +465,13 @@ impl App {
             let id = m.id.clone().unwrap_or_default();
             let picked = self.pane.picked.as_deref() == Some(id.as_str());
             let c = colour(m.role.as_deref());
-            let bar = container(space()).width(4).height(22).style(move |_| container::background(c));
-            let line = button(row![bar, text(span(m)).size(13).width(140), text(role_name(m.role.as_deref())).size(13).width(160), text(m.note.clone()).size(13)].spacing(8).align_y(Alignment::Center))
+            let bar = container(space()).width(4).height(Length::Fill).style(move |_| container::background(c));
+            // The note under the time and role: it reads at any width.
+            let mut body = column![row![text(span(m)).size(13).width(140), text(role_name(m.role.as_deref())).size(13)].spacing(8)].spacing(2);
+            if !m.note.is_empty() {
+                body = body.push(text(m.note.clone()).size(13).style(text::secondary));
+            }
+            let line = button(row![bar, body].spacing(8).height(Length::Shrink))
                 .width(Length::Fill)
                 .padding([3, 6])
                 .style(if picked { button::secondary } else { button::text })
@@ -710,7 +715,11 @@ impl canvas::Program<Message> for Strip {
         frame.fill(&Path::rounded_rectangle(Point::new(0.0, top), Size::new(w, bar), (bar / 2.0).into()), palette.background.strong.color);
         let x = px(self.at);
         frame.fill(&Path::rounded_rectangle(Point::new(0.0, top), Size::new(x.max(bar), bar), (bar / 2.0).into()), palette.primary.base.color);
-        for (id, s, e, c) in &self.marks {
+        // Segments first, then the poles over them: a flag inside a segment
+        // was hidden under its bar.
+        let mut marks: Vec<_> = self.marks.iter().collect();
+        marks.sort_by_key(|m| m.2.is_none());
+        for (id, s, e, c) in marks {
             let picked = self.picked.as_deref() == Some(id.as_str());
             let (s, e) = self.shown(id, *s, *e, drag);
             match e {
@@ -726,16 +735,17 @@ impl canvas::Program<Message> for Strip {
                 // flag at its top, so it shows over a segment too.
                 None => {
                     let x = px(s);
+                    let edge = palette.background.base.color;
+                    frame.fill(&Path::rectangle(Point::new(x - 2.0, 0.0), Size::new(if picked { 5.0 } else { 4.0 }, h)), edge);
                     frame.fill(&Path::rectangle(Point::new(x - 1.0, 0.0), Size::new(if picked { 3.0 } else { 2.0 }, h)), *c);
-                    frame.fill(
-                        &Path::new(|b| {
-                            b.move_to(Point::new(x, 0.0));
-                            b.line_to(Point::new(x + 8.0, 3.5));
-                            b.line_to(Point::new(x, 7.0));
-                            b.close();
-                        }),
-                        *c,
-                    );
+                    let head = Path::new(|b| {
+                        b.move_to(Point::new(x, 0.0));
+                        b.line_to(Point::new(x + 11.0, 5.0));
+                        b.line_to(Point::new(x, 10.0));
+                        b.close();
+                    });
+                    frame.fill(&head, *c);
+                    frame.stroke(&head, canvas::Stroke::default().with_color(edge).with_width(1.0));
                 }
             }
         }

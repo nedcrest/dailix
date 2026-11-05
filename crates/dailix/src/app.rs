@@ -66,7 +66,11 @@ struct App {
     /// half the window, remembered), and whether its edge is held.
     width: f32,
     pane_width: f32,
-    gripping: bool,
+    /// While the edge is held: where the pointer was first seen and the
+    /// width then. The width follows the pointer's move from there (it was
+    /// worked out from the window's right edge, and a width the window
+    /// hadn't reported yet threw the pane to its narrowest).
+    grip: Option<Option<(f32, f32)>>,
 }
 
 #[derive(Debug, Clone)]
@@ -179,13 +183,15 @@ fn clock(t: f64) -> String {
 impl App {
     fn new(open: Option<PathBuf>) -> (App, Task<Message>) {
         let settings = Settings::load();
-        let mut app = App { project: None, error: None, making: HashSet::new(), drafts: HashMap::new(), dirty: HashSet::new(), selected: None, pane: pane::Pane::default(), height: 920.0, scale: settings.scale.unwrap_or(1.0), width: 1500.0, pane_width: settings.pane_width.unwrap_or(pane::WIDTH), gripping: false, settings };
+        let mut app = App { project: None, error: None, making: HashSet::new(), drafts: HashMap::new(), dirty: HashSet::new(), selected: None, pane: pane::Pane::default(), height: 920.0, scale: settings.scale.unwrap_or(1.0), width: 1500.0, pane_width: settings.pane_width.unwrap_or(pane::WIDTH), grip: None, settings };
         let root = open.or_else(|| app.settings.last.clone());
         let task = match root {
             Some(root) => app.load(root),
             None => Task::none(),
         };
-        (app, task)
+        // The window's real size, before any resize says it.
+        let size = iced::window::latest().and_then(iced::window::size).map(Message::Resized);
+        (app, Task::batch([task, size]))
     }
 
     fn title(&self) -> String {
@@ -258,7 +264,7 @@ impl App {
             _ => None,
         });
         // The pointer, only while the pane's edge is held.
-        let grip = if self.gripping {
+        let grip = if self.grip.is_some() {
             iced::event::listen_with(|e, _, _| match e {
                 iced::Event::Mouse(iced::mouse::Event::CursorMoved { position }) => Some(Message::Pointer(position)),
                 iced::Event::Mouse(iced::mouse::Event::ButtonReleased(iced::mouse::Button::Left)) => Some(Message::Release),
@@ -313,15 +319,16 @@ impl App {
                 self.height = s.height;
                 self.width = s.width;
             }
-            Message::Grip => self.gripping = true,
+            Message::Grip => self.grip = Some(None),
             Message::Pointer(p) => {
-                // The pane's left edge follows the pointer: as wide as the
-                // window's right part, up to half the window.
-                let room = self.width / self.scale;
-                self.pane_width = (room - p.x - 10.0).clamp(pane::MIN_WIDTH, (room / 2.0).max(pane::MIN_WIDTH));
+                // Moved left, the pane widens; up to half the window.
+                let Some(grip) = &mut self.grip else { return Task::none() };
+                let (x0, w0) = *grip.get_or_insert((p.x, self.pane_width));
+                let half = (self.width / self.scale / 2.0).max(pane::MIN_WIDTH);
+                self.pane_width = (w0 + x0 - p.x).clamp(pane::MIN_WIDTH, half);
             }
             Message::Release => {
-                self.gripping = false;
+                self.grip = None;
                 self.settings.pane_width = Some(self.pane_width);
                 let _ = self.settings.save();
             }
