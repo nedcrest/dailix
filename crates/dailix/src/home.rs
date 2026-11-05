@@ -27,11 +27,11 @@ impl App {
             m @ (Message::ToOmnix(..) | Message::EmptyDay(..)) => {
                 self.save_note();
                 let made = match &m {
-                    Message::EmptyDay(root, day) => rosmo360::from_sheet::write_empty(root, day.as_deref()),
-                    Message::ToOmnix(root, day) => rosmo360::from_sheet::write(root, day.as_deref()),
+                    Message::EmptyDay(root, day) => omnix::from_sheet::write_empty(root, day.as_deref()),
+                    Message::ToOmnix(root, day) => omnix::from_sheet::write(root, day.as_deref()),
                     _ => return Task::none(),
                 };
-                self.error = made.map_err(|e| format!("{e:#}")).and_then(|edit| crate::omnix::open(&edit)).err();
+                self.error = made.map_err(|e| format!("{e:#}")).and_then(|edit| crate::editor::open(&edit)).err();
             }
             Message::Name(root) => {
                 let typed = dailix_sheet::project::title(&root);

@@ -4,8 +4,8 @@
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
-/// Omnix's binary's name (gap 76 renames it).
-const BIN: &str = "rosmo360";
+/// Omnix's binary's name.
+const BIN: &str = "omnix";
 
 /// Omnix's binary: `OMNIX_BIN`, else on PATH, else a release build beside
 /// this one's repo (`../omnix-360-studio`, for working on both).

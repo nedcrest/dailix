@@ -33,7 +33,7 @@ pub struct Settings {
 
 /// The folder of Dailix's settings, by the platform's custom.
 pub fn config_dir() -> Option<PathBuf> {
-    rosmo360::app_dir(rosmo360::AppDir::Config, "dailix")
+    omnix::app_dir(omnix::AppDir::Config, "dailix")
 }
 
 impl Settings {

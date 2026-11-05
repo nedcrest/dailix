@@ -192,7 +192,7 @@ fn make_poster(clip: &std::path::Path, duration: f64, poster: &std::path::Path) 
     if std::fs::create_dir_all(dir).is_err() {
         return false;
     }
-    let Some(jpeg) = rosmo360::viewer::jpeg_frame(clip, duration / 3.0, 480) else { return false };
+    let Some(jpeg) = omnix::viewer::jpeg_frame(clip, duration / 3.0, 480) else { return false };
     let part = dir.join(format!(".{}.part.jpg", poster.file_stem().unwrap_or_default().to_string_lossy()));
     std::fs::write(&part, jpeg).is_ok() && std::fs::rename(&part, poster).is_ok()
 }

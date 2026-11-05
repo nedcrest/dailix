@@ -23,7 +23,7 @@ use dailix_sheet::{MarkKind, MarkOp, Op};
 use iced::widget::canvas::{self, Frame, Geometry, Path};
 use iced::widget::{button, column, container, pick_list, row, rule, scrollable, space, text, text_editor};
 use iced::{Alignment, Color, Element, Length, Point, Rectangle, Renderer, Size, Theme, mouse};
-use rosmo360::viewer::{Loaded, Viewer};
+use omnix::viewer::{Loaded, Viewer};
 use std::sync::{Arc, Mutex};
 
 /// The pane's share of the window's width at first, and the least width
@@ -136,8 +136,8 @@ impl App {
         }
         let Some(path) = self.project.as_ref().map(|p| p.footage.layout.clip(&key)) else { return iced::Task::none() };
         let (k, p) = (key.clone(), path.clone());
-        let facts = iced::Task::perform(super::blocking(move || rosmo360::viewer::describe(&p).map_err(|e| format!("{e:#}"))), move |r| Message::Pane(PaneMsg::Facts(k.clone(), r)));
-        let load = iced::Task::perform(super::blocking(move || rosmo360::viewer::load(&path).map_err(|e| format!("{e:#}"))), move |r| Message::Pane(PaneMsg::Loaded(key.clone(), Slot(Arc::new(Mutex::new(Some(r)))))));
+        let facts = iced::Task::perform(super::blocking(move || omnix::viewer::describe(&p).map_err(|e| format!("{e:#}"))), move |r| Message::Pane(PaneMsg::Facts(k.clone(), r)));
+        let load = iced::Task::perform(super::blocking(move || omnix::viewer::load(&path).map_err(|e| format!("{e:#}"))), move |r| Message::Pane(PaneMsg::Loaded(key.clone(), Slot(Arc::new(Mutex::new(Some(r)))))));
         iced::Task::batch([load, facts])
     }
 

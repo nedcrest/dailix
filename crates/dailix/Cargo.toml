@@ -15,7 +15,7 @@ rfd.workspace = true
 # Omnix's player (its `viewer`), the same the bin plays clips with; a
 # sibling repo, as Omnix depends on this one's sheet core. Building it
 # needs ALSA's headers (Omnix's own .localdeps on the dev machine).
-rosmo360 = { path = "../../../omnix-360-studio" }
+omnix = { path = "../../../omnix-360-studio" }
 schemars.workspace = true
 
 # Free space on a disk (statvfs), for the home view's places.
