@@ -194,16 +194,9 @@ fn make_poster(clip: &std::path::Path, duration: f64, poster: &std::path::Path) 
     if std::fs::create_dir_all(dir).is_err() {
         return false;
     }
+    let Some(jpeg) = rosmo360::viewer::jpeg_frame(clip, duration / 3.0, 480) else { return false };
     let part = dir.join(format!(".{}.part.jpg", poster.file_stem().unwrap_or_default().to_string_lossy()));
-    let ok = std::process::Command::new("ffmpeg")
-        .args(["-v", "error", "-nostdin", "-y", "-ss", &format!("{:.2}", duration / 3.0), "-i"])
-        .arg(clip)
-        .args(["-frames:v", "1", "-vf", "scale=480:-2", "-q:v", "4"])
-        .arg(&part)
-        .stdin(std::process::Stdio::null())
-        .status()
-        .is_ok_and(|s| s.success());
-    ok && std::fs::rename(&part, poster).is_ok()
+    std::fs::write(&part, jpeg).is_ok() && std::fs::rename(&part, poster).is_ok()
 }
 
 /// Omnix's binary, to open an edit in: `OMNIX_BIN`, else on PATH as
