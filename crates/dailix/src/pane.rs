@@ -33,23 +33,6 @@ pub const MIN_WIDTH: f32 = 380.0;
 /// How long the pick rests on a clip before the player opens it.
 const REST: std::time::Duration = std::time::Duration::from_millis(250);
 
-/// The roles: key, the sheet's name, its colour.
-pub const ROLES: [(&str, &str, Color); 8] = [
-    ("talk", "розмова / sync", Color::from_rgb8(0xc0, 0x56, 0x3a)),
-    ("establish", "загальний / establishing", Color::from_rgb8(0x4f, 0x8a, 0x6a)),
-    ("broll", "фон / B-roll", Color::from_rgb8(0x6b, 0x7f, 0x9e)),
-    ("detail", "деталь / insert", Color::from_rgb8(0xc9, 0x8a, 0x5e)),
-    ("cut", "перебивка / cutaway", Color::from_rgb8(0xb0, 0x7a, 0xa8)),
-    ("action", "дія / action", Color::from_rgb8(0xd2, 0x9a, 0x5e)),
-    ("reveal", "ревіл / reveal", Color::from_rgb8(0x7a, 0x6b, 0xab)),
-    ("reaction", "реакція / reaction", Color::from_rgb8(0xd1, 0x8f, 0xa5)),
-];
-
-/// A role's colour; grey for none or one of the user's own.
-pub fn colour(role: Option<&str>) -> Color {
-    role.and_then(|r| ROLES.iter().find(|x| x.0 == r)).map_or(Color::from_rgb8(0x9a, 0x9a, 0x9a), |x| x.2)
-}
-
 /// A clip loaded off the UI thread, handed over once.
 #[derive(Clone)]
 pub struct Slot(pub Arc<Mutex<Option<Result<Loaded, String>>>>);
@@ -286,8 +269,20 @@ impl App {
     /// The roles to choose from: none first, the sheet's eight, the user's.
     fn role_choices(&self) -> Vec<RoleChoice> {
         let none = RoleChoice { key: String::new(), name: "— без ролі".to_owned() };
-        let own = self.project.iter().flat_map(|p| p.sheet.roles.iter()).map(|r| RoleChoice { key: r.key.clone(), name: if r.en.is_empty() { r.title.clone() } else { format!("{} / {}", r.title, r.en) } });
-        std::iter::once(none).chain(ROLES.iter().map(|r| RoleChoice { key: r.0.to_owned(), name: r.1.to_owned() })).chain(own).collect()
+        let roles = self.project.iter().flat_map(|p| p.sheet.all_roles()).map(|r| RoleChoice { name: r.name(), key: r.key });
+        std::iter::once(none).chain(roles).collect()
+    }
+
+    /// A mark's colour by its role, the user's own roles' included.
+    fn role_colour(&self, role: Option<&str>) -> Color {
+        let [r, g, b] = self.project.as_ref().map_or(dailix_sheet::NO_ROLE_RGB, |p| p.sheet.role_rgb(role));
+        Color::from_rgb8(r, g, b)
+    }
+
+    /// A role as it reads ("розмова / sync"); one the sheet doesn't know,
+    /// its key.
+    fn role_name(&self, role: Option<&str>) -> String {
+        role.map(|r| self.project.as_ref().and_then(|p| p.sheet.role(r)).map_or(r.to_owned(), |x| x.name())).unwrap_or_default()
     }
 
     /// Where `role` is among the choices (none: the first).
@@ -465,7 +460,7 @@ impl App {
                 let strip = Strip {
                     at: v.position(),
                     length: v.duration(),
-                    marks: self.marks().iter().map(|m| (m.id.clone().unwrap_or_default(), m.t, if m.kind == MarkKind::Segment { m.end } else { None }, colour(m.role.as_deref()))).collect(),
+                    marks: self.marks().iter().map(|m| (m.id.clone().unwrap_or_default(), m.t, if m.kind == MarkKind::Segment { m.end } else { None }, self.role_colour(m.role.as_deref()))).collect(),
                     picked: self.pane.picked.clone(),
                     mark_in: self.pane.mark_in,
                 };
@@ -489,13 +484,13 @@ impl App {
         for m in &marks {
             let id = m.id.clone().unwrap_or_default();
             let picked = self.pane.picked.as_deref() == Some(id.as_str());
-            let c = colour(m.role.as_deref());
+            let c = self.role_colour(m.role.as_deref());
             let bar = container(space()).width(4).height(Length::Fill).style(move |_| container::background(c));
             // The note under the time and role: it reads at any width.
             let outside = m.kind != MarkKind::Segment && !marks.iter().any(|s| s.kind == MarkKind::Segment && s.end.is_some_and(|e| m.t >= s.t && m.t <= e));
             let when = text(span(m)).size(13).width(140);
             let when = if outside { when.style(text::secondary) } else { when };
-            let mut body = column![row![when, text(role_name(m.role.as_deref())).size(13)].spacing(8)].spacing(2);
+            let mut body = column![row![when, text(self.role_name(m.role.as_deref())).size(13)].spacing(8)].spacing(2);
             if !m.note.is_empty() {
                 body = body.push(text(m.note.clone()).size(13).style(text::secondary));
             }
@@ -560,7 +555,7 @@ impl App {
             Some(Stage::Role(at)) => {
                 let mut roles = column![].spacing(1);
                 for (i, c) in self.role_choices().into_iter().enumerate() {
-                    let colour = colour(Some(c.key.as_str()).filter(|k| !k.is_empty()));
+                    let colour = self.role_colour(Some(c.key.as_str()).filter(|k| !k.is_empty()));
                     let bar = container(space()).width(4).height(18).style(move |_| container::background(colour));
                     roles = roles.push(
                         button(row![bar, text(c.name).size(13)].spacing(8).align_y(Alignment::Center))
@@ -603,10 +598,6 @@ fn span(m: &dailix_sheet::Mark) -> String {
         (MarkKind::Flag, _) => format!("{} ⚑", dailix_sheet::clock(m.t, 1)),
         _ => dailix_sheet::clock(m.t, 1),
     }
-}
-
-fn role_name(role: Option<&str>) -> String {
-    role.map(|r| ROLES.iter().find(|x| x.0 == r).map_or(r.to_owned(), |x| x.1.to_owned())).unwrap_or_default()
 }
 
 /// The strip under the player: the clip's length, its playhead, and its
