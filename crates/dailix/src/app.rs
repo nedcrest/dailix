@@ -113,10 +113,11 @@ enum Message {
     Help,
     /// Home: the trips and their days.
     Home,
-    /// A day's edit made from its marking and opened in Omnix.
-    ToOmnix(String),
+    /// A day's edit (of the project at this folder) made from its marking
+    /// and opened in Omnix.
+    ToOmnix(PathBuf, String),
     /// An empty edit of a day opened in Omnix, its bin to build from.
-    EmptyDay(String),
+    EmptyDay(PathBuf, String),
     /// A day's card clicked: its project opened at that day.
     OpenDay(PathBuf, String),
     /// Where the picked tile and the list are, to bring it into view.
@@ -369,13 +370,12 @@ impl App {
                 self.width = s.width;
             }
             Message::Help => self.help = !self.help,
-            m @ (Message::ToOmnix(_) | Message::EmptyDay(_)) => {
+            m @ (Message::ToOmnix(..) | Message::EmptyDay(..)) => {
                 self.save_note_now();
-                let Some(root) = self.project.as_ref().map(|p| p.footage.layout.root.clone()) else { return Task::none() };
                 let made = match &m {
-                    Message::EmptyDay(day) => rosmo360::from_sheet::write_empty(&root, day),
-                    Message::ToOmnix(day) => rosmo360::from_sheet::write(&root, Some(day)),
-                    _ => unreachable!(),
+                    Message::EmptyDay(root, day) => rosmo360::from_sheet::write_empty(root, day),
+                    Message::ToOmnix(root, day) => rosmo360::from_sheet::write(root, Some(day)),
+                    _ => return Task::none(),
                 };
                 match made {
                     Ok(edit) => match omnix() {
@@ -665,12 +665,12 @@ impl App {
     fn day<'a>(&'a self, p: &'a Project, day: &'a footage::Day) -> Element<'a, Message> {
         let rated = day.clips.iter().filter(|c| p.sheet.clips.get(&c.key).is_some_and(|s| s.rating.is_some())).count();
         let to_omnix = tip(
-            button(text("→ Omnix").size(13)).padding([3, 10]).style(button::secondary).on_press(Message::ToOmnix(day.day.clone())),
+            button(text("→ Omnix").size(13)).padding([3, 10]).style(button::secondary).on_press(Message::ToOmnix(p.footage.layout.root.clone(), day.day.clone())),
             text("An edit of this day from its marking, opened in Omnix (a new file in 04_project)"),
             tooltip::Position::Bottom,
         );
         let empty = tip(
-            button(text("Empty day").size(13)).padding([3, 10]).style(button::secondary).on_press(Message::EmptyDay(day.day.clone())),
+            button(text("Empty day").size(13)).padding([3, 10]).style(button::secondary).on_press(Message::EmptyDay(p.footage.layout.root.clone(), day.day.clone())),
             text("An empty edit of this day in Omnix, its clips in the bin, to build the idea afresh"),
             tooltip::Position::Bottom,
         );

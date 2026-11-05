@@ -102,6 +102,14 @@ impl App {
         ]
         .spacing(4)
         .width(CARD);
-        button(column![poster, info].spacing(6)).padding(6).style(button::secondary).on_press(Message::OpenDay(trip.root.clone(), d.day.clone())).into()
+        let open = button(column![poster, info].spacing(6)).padding(0).style(button::text).on_press(Message::OpenDay(trip.root.clone(), d.day.clone()));
+        // The day straight into Omnix: its edit from the marking, or empty.
+        let small = |label: &'static str, msg: Message, hint: &'static str| super::tip(button(text(label).size(12)).padding([2, 8]).style(button::secondary).on_press(msg), text(hint), tooltip::Position::Bottom);
+        let actions = row![
+            small("→ Omnix", Message::ToOmnix(trip.root.clone(), d.day.clone()), "An edit of this day from its marking, opened in Omnix"),
+            small("Empty day", Message::EmptyDay(trip.root.clone(), d.day.clone()), "An empty edit of this day in Omnix, its clips in the bin"),
+        ]
+        .spacing(6);
+        container(column![open, actions].spacing(6).width(CARD)).padding(6).style(container::rounded_box).into()
     }
 }
