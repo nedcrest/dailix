@@ -8,11 +8,11 @@
 //!
 //! Keys (the window's, read by their place so any layout works): Space
 //! plays; I and O make a segment (or, inside the picked one, move its
-//! ends); F sets a flag, a note to self that never goes into the edit; M
-//! a moment, a segment a second either side (user, 2026-11-05: a flag
+//! ends); M sets a flag, a note to self that never goes into the edit
+//! (M as Omnix's markers); N a moment, a segment a second either side (user, 2026-11-05: a flag
 //! outside every segment adds nothing, so a quick way to add material);
 //! Page Up / Down go to the mark before or after;
-//! Delete removes the picked one. A mark just made (F, or O after I) asks
+//! Delete removes the picked one. A mark just made (M, N, or O after I) asks
 //! at once for its role (↑ ↓, Enter) and its note (Enter); Esc or Tab
 //! before that takes it away again (user, 2026-11-05: roles had a key each,
 //! which is hard to learn). On the strip a segment's edges and a flag are
@@ -395,18 +395,19 @@ impl App {
                     _ => self.error = Some("No start for a segment: set one with I first".to_owned()),
                 }
             }
-            // F: a flag here, a note to self (a meme to find, a sound).
-            Code::KeyF => {
+            // M: a flag here, a note to self (a meme to find, a sound); M
+            // as Omnix's marker key, and the trade's (user, 2026-11-05).
+            Code::KeyM => {
                 let (Some(now), Some(clip)) = (now, self.pane.key.clone()) else { return true };
                 self.pane.mark_in = None;
                 let made = self.change(Op::Mark(MarkOp::Add { clip, t: now, end: None, flag: true, role: None, note: String::new() }));
                 self.begin_pending(made);
             }
-            // M: a moment, a segment a second either side of the playhead,
-            // to stretch by its edges: material, where F is a note.
+            // N: a moment, a segment a second either side of the playhead,
+            // to stretch by its edges: material, where a flag is a note.
             // On a flag (picked, or at the playhead), the moment takes its
             // role, offered first (user, 2026-11-05).
-            Code::KeyM => {
+            Code::KeyN => {
                 let (Some(now), Some(clip)) = (now, self.pane.key.clone()) else { return true };
                 let length = self.pane.viewer.as_ref().map_or(f64::INFINITY, Viewer::duration);
                 let frame = 0.15;
