@@ -379,7 +379,7 @@ impl App {
             }
             Message::Help => self.help = !self.help,
             m @ (Message::ToOmnix(..) | Message::EmptyDay(..)) => {
-                self.save_note_now();
+                self.save_note();
                 let made = match &m {
                     Message::EmptyDay(root, day) => rosmo360::from_sheet::write_empty(root, day.as_deref()),
                     Message::ToOmnix(root, day) => rosmo360::from_sheet::write(root, day.as_deref()),
@@ -423,7 +423,7 @@ impl App {
                 }
             }
             Message::Home => {
-                self.save_note_now();
+                self.save_note();
                 self.pane = pane::Pane::default();
                 self.selected = None;
                 self.at_home = true;

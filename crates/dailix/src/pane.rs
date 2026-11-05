@@ -182,14 +182,9 @@ impl App {
         self.pane.editor.text().replace('\n', " ").trim().to_owned()
     }
 
-    /// Saves the note being typed, leaving the contact sheet.
-    pub(super) fn save_note_now(&mut self) {
-        self.save_note();
-    }
-
     /// Saves the note typed for the mark the field was filled from, if it
-    /// changed.
-    fn save_note(&mut self) {
+    /// changed (also on leaving the contact sheet).
+    pub(super) fn save_note(&mut self) {
         let Some(id) = self.pane.editor_for.clone() else { return };
         let typed = self.typed();
         if self.mark(&id).is_some_and(|m| m.note != typed) {
