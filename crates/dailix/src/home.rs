@@ -51,26 +51,6 @@ impl App {
                     }
                 }
             }
-            Message::ChooseProjects => {
-                let start = self.settings.projects.clone();
-                return Task::perform(
-                    async move {
-                        let mut d = rfd::AsyncFileDialog::new().set_title("The projects folder");
-                        if let Some(s) = start {
-                            d = d.set_directory(s);
-                        }
-                        d.pick_folder().await.map(|f| f.path().to_owned())
-                    },
-                    Message::ProjectsChosen,
-                );
-            }
-            Message::ProjectsChosen(Some(folder)) => {
-                self.settings.projects = Some(folder);
-                if let Err(e) = self.settings.save() {
-                    self.error = Some(format!("The settings couldn't be saved: {e}"));
-                }
-                self.refresh_home();
-            }
             Message::Home => {
                 self.save_note();
                 self.pane = pane::Pane::default();
@@ -118,10 +98,10 @@ impl App {
     fn places_strip(&self) -> Element<'_, Message> {
         let chip = |p: &Place| -> Element<'_, Message> {
             let state = match (p.online, p.free) {
-                (true, Some(f)) => format!("● {} · {} free", p.name, gb(f)),
-                (true, None) => format!("● {}", p.name),
-                (false, _) if p.path.is_none() => format!("○ {} · not set", p.name),
-                (false, _) => format!("○ {} · offline", p.name),
+                (true, Some(f)) => format!("● {} · {} free", p.kind.name(), gb(f)),
+                (true, None) => format!("● {}", p.kind.name()),
+                (false, _) if p.path.is_none() => format!("○ {} · not set", p.kind.name()),
+                (false, _) => format!("○ {} · offline", p.kind.name()),
             };
             let path = p.path.as_ref().map(|p| p.display().to_string()).unwrap_or_default();
             let online = p.online;
@@ -132,13 +112,9 @@ impl App {
                 }
                 s
             });
-            // The projects place is chosen here (user, 2026-11-07); the
-            // others still by `dailix places`.
-            if p.name == library::PROJECTS {
-                let hint = if path.is_empty() { "Choose the projects folder".to_owned() } else { format!("{path}\nClick to choose another folder") };
-                return super::tip(button(chip).padding(0).style(button::text).on_press(Message::ChooseProjects), text(hint), tooltip::Position::Bottom);
-            }
-            super::tip(chip, text(path), tooltip::Position::Bottom)
+            // A click chooses its folder (user, 2026-11-07), as Settings does.
+            let hint = if path.is_empty() { format!("Choose the {} folder", p.kind.name()) } else { format!("{path}\nClick to choose another folder") };
+            super::tip(button(chip).padding(0).style(button::text).on_press(Message::ChoosePlace(p.kind)), text(hint), tooltip::Position::Bottom)
         };
         row(self.places.iter().map(chip)).spacing(8).align_y(Alignment::Center).into()
     }
@@ -156,7 +132,7 @@ impl App {
         let all = |label: &'static str, msg: Message, hint: &'static str| super::tip(button(text(label).size(13)).padding([3, 10]).style(button::secondary).on_press(msg), text(hint), tooltip::Position::Bottom);
         let name: Element<'a, Message> = match &self.naming {
             Some((root, typed)) if *root == trip.root => text_input("the folder's name", typed).id(NAME).size(18).width(320).on_input(Message::NameEdit).on_submit(Message::NameSave).into(),
-            _ => super::tip(button(text(trip.title.clone()).size(18)).padding(0).style(button::text).on_press(Message::Name(trip.root.clone())), text("Rename (the folder keeps its name)"), tooltip::Position::Bottom).into(),
+            _ => super::tip(button(text(trip.title.clone()).size(18)).padding(0).style(button::text).on_press(Message::Name(trip.root.clone())), text("Rename (the folder keeps its name)"), tooltip::Position::Bottom),
         };
         let head = row![
             name,

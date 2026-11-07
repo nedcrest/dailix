@@ -5,7 +5,7 @@
 //! changes nothing (it doesn't even give marks their ids).
 
 use dailix_sheet::footage;
-use crate::settings::{Settings, Sources};
+use crate::settings::{PlaceKind, Settings};
 use dailix_sheet::{Doc, Layout};
 use std::path::{Path, PathBuf};
 
@@ -102,24 +102,21 @@ pub fn describe(trips: &[Trip]) -> String {
 /// now, and its free space.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Place {
-    pub name: &'static str,
+    pub kind: PlaceKind,
     pub path: Option<PathBuf>,
     pub online: bool,
     pub free: Option<u64>,
 }
 
-/// The projects place's name among the places.
-pub const PROJECTS: &str = "projects";
-
 /// The three places as set.
 pub fn places(s: &Settings) -> Vec<Place> {
-    let sources = s.sources.as_ref().map(|Sources::Folder { path }| path.clone());
-    [("TMP", s.tmp.clone()), (PROJECTS, s.projects.clone()), ("sources", sources)]
+    PlaceKind::ALL
         .into_iter()
-        .map(|(name, path)| {
+        .map(|kind| {
+            let path = s.place(kind);
             let online = path.as_ref().is_some_and(|p| p.is_dir());
             let free = path.as_deref().filter(|_| online).and_then(free_space);
-            Place { name, path, online, free }
+            Place { kind, path, online, free }
         })
         .collect()
 }
@@ -191,9 +188,9 @@ mod tests {
         dailix_sheet::project::set_title(&root, "Sea, May 2030").unwrap();
         assert_eq!(super::trips(&projects).0[0].title, "Sea, May 2030");
 
-        let s = Settings { projects: Some(projects.clone()), sources: Some(Sources::Folder { path: base.join("gone") }), ..Default::default() };
+        let s = Settings { projects: Some(projects.clone()), sources: Some(crate::settings::Sources::Folder { path: base.join("gone") }), ..Default::default() };
         let p = places(&s);
-        assert_eq!(p.iter().map(|p| (p.name, p.online)).collect::<Vec<_>>(), [("TMP", false), ("projects", true), ("sources", false)]);
+        assert_eq!(p.iter().map(|p| (p.kind.name(), p.online)).collect::<Vec<_>>(), [("TMP", false), ("projects", true), ("sources", false)]);
         assert!(p[1].free.is_some_and(|f| f > 0));
         std::fs::remove_dir_all(&base).unwrap();
     }

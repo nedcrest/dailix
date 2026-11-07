@@ -14,6 +14,26 @@ pub enum Sources {
     Folder { path: PathBuf },
 }
 
+/// One of the three places (README).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PlaceKind {
+    Tmp,
+    Projects,
+    Sources,
+}
+
+impl PlaceKind {
+    pub const ALL: [PlaceKind; 3] = [PlaceKind::Tmp, PlaceKind::Projects, PlaceKind::Sources];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            PlaceKind::Tmp => "TMP",
+            PlaceKind::Projects => "projects",
+            PlaceKind::Sources => "sources",
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Settings {
@@ -46,6 +66,24 @@ impl Settings {
         std::fs::write(file, text)
     }
 
+    /// Place `kind`'s folder, if set.
+    pub fn place(&self, kind: PlaceKind) -> Option<PathBuf> {
+        match kind {
+            PlaceKind::Tmp => self.tmp.clone(),
+            PlaceKind::Projects => self.projects.clone(),
+            PlaceKind::Sources => self.sources.as_ref().map(|Sources::Folder { path }| path.clone()),
+        }
+    }
+
+    /// Place `kind` set to `folder` (the sources as a folder).
+    pub fn set_place(&mut self, kind: PlaceKind, folder: PathBuf) {
+        match kind {
+            PlaceKind::Tmp => self.tmp = Some(folder),
+            PlaceKind::Projects => self.projects = Some(folder),
+            PlaceKind::Sources => self.sources = Some(Sources::Folder { path: folder }),
+        }
+    }
+
     /// The places, a line each, for `dailix places`.
     pub fn describe(&self) -> String {
         let show = |p: &Option<PathBuf>| p.as_ref().map_or_else(|| "(not set)".to_owned(), |p| p.display().to_string());
@@ -60,6 +98,16 @@ impl Settings {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn each_place_is_set_and_read_by_its_kind() {
+        let mut s = Settings::default();
+        for (k, p) in PlaceKind::ALL.into_iter().zip(["/t", "/p", "/s"]) {
+            s.set_place(k, p.into());
+            assert_eq!(s.place(k), Some(p.into()));
+        }
+        assert_eq!(s.describe(), "tmp       /t\nprojects  /p\nsources   /s (a folder)\n");
+    }
 
     #[test]
     fn omnix_reads_the_projects_place_as_saved() {

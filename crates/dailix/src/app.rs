@@ -8,6 +8,8 @@
 mod pane;
 #[path = "home.rs"]
 mod home;
+#[path = "settings_window.rs"]
+mod settings_window;
 
 use dailix_sheet::footage::{self, Footage};
 use crate::settings::Settings;
@@ -76,6 +78,8 @@ struct App {
     grip: Option<Option<(f32, f32)>>,
     /// The keys' list shown (F1).
     help: bool,
+    /// The Settings window open, at this group.
+    settings_open: Option<settings_window::Group>,
     /// The home view shown (trips and days), rather than a contact sheet;
     /// its trips and places as last read.
     at_home: bool,
@@ -90,10 +94,13 @@ enum Message {
     /// Pick a project folder; the folder picked, if one was.
     Open,
     Opened(Option<PathBuf>),
-    /// The projects place chosen on the home view (a folder dialog), and
-    /// what was chosen.
-    ChooseProjects,
-    ProjectsChosen(Option<PathBuf>),
+    /// The Settings window opened or closed; one of its groups shown.
+    Settings,
+    SettingsGroup(settings_window::Group),
+    /// A place's folder chosen (a folder dialog), from the Settings window
+    /// or its chip on the home view; what was chosen.
+    ChoosePlace(crate::settings::PlaceKind),
+    PlaceChosen(crate::settings::PlaceKind, Option<PathBuf>),
     /// A clip rated (none: unrated again).
     Rate(String, Option<u8>),
     DayEdit(String, text_editor::Action),
@@ -201,6 +208,13 @@ fn make_poster(clip: &std::path::Path, duration: f64, poster: &std::path::Path) 
     std::fs::write(&part, jpeg).is_ok() && std::fs::rename(&part, poster).is_ok()
 }
 
+/// A card over the window, the rest dimmed: nothing below takes a click;
+/// one outside the card sends `outside`. Every dialog's (keys, settings).
+fn modal<'a>(card: impl Into<Element<'a, Message>>, outside: Message) -> Element<'a, Message> {
+    let shade = container(iced::widget::center(iced::widget::opaque(card))).width(Length::Fill).height(Length::Fill).style(|_| container::Style::default().background(iced::Color::from_rgba(0.0, 0.0, 0.0, 0.55)));
+    iced::widget::opaque(iced::widget::mouse_area(shade).on_press(outside))
+}
+
 /// A tooltip on a background of its own, so it reads over text.
 fn tip<'a>(content: impl Into<Element<'a, Message>>, label: impl Into<Element<'a, Message>>, at: tooltip::Position) -> Element<'a, Message> {
     tooltip(content, label, at).padding(6).style(container::bordered_box).into()
@@ -209,7 +223,7 @@ fn tip<'a>(content: impl Into<Element<'a, Message>>, label: impl Into<Element<'a
 impl App {
     fn new(open: Option<PathBuf>) -> (App, Task<Message>) {
         let settings = Settings::load();
-        let mut app = App { project: None, error: None, making: HashSet::new(), drafts: HashMap::new(), dirty: HashSet::new(), selected: None, pane: pane::Pane::default(), height: 920.0, scale: settings.scale.unwrap_or(1.0), width: 1500.0, pane_share: settings.pane_share.unwrap_or(pane::SHARE), grip: None, help: false, at_home: true, trips: Vec::new(), places: Vec::new(), naming: None, settings };
+        let mut app = App { project: None, error: None, making: HashSet::new(), drafts: HashMap::new(), dirty: HashSet::new(), selected: None, pane: pane::Pane::default(), height: 920.0, scale: settings.scale.unwrap_or(1.0), width: 1500.0, pane_share: settings.pane_share.unwrap_or(pane::SHARE), grip: None, help: false, settings_open: None, at_home: true, trips: Vec::new(), places: Vec::new(), naming: None, settings };
         // Home first, unless a project was named.
         app.refresh_home();
         let task = match open {
@@ -353,7 +367,8 @@ impl App {
                 self.width = s.width;
             }
             Message::Help => self.help = !self.help,
-            m @ (Message::ToOmnix(..) | Message::EmptyDay(..) | Message::Name(_) | Message::NameEdit(_) | Message::NameSave | Message::Home | Message::OpenDay(..) | Message::ChooseProjects | Message::ProjectsChosen(_)) => return self.on_home(m),
+            m @ (Message::ToOmnix(..) | Message::EmptyDay(..) | Message::Name(_) | Message::NameEdit(_) | Message::NameSave | Message::Home | Message::OpenDay(..)) => return self.on_home(m),
+            m @ (Message::Settings | Message::SettingsGroup(_) | Message::ChoosePlace(_) | Message::PlaceChosen(..)) => return self.on_settings(m),
             Message::Grip => self.grip = Some(None),
             Message::Pointer(p) => {
                 // Moved left, the pane widens; up to half the window.
@@ -457,6 +472,17 @@ impl App {
             }
             return Task::none();
         }
+        // The Settings window: Esc closes it, the rest wait.
+        if self.settings_open.is_some() {
+            if matches!(key.as_ref(), Key::Named(Named::Escape)) {
+                self.settings_open = None;
+            }
+            return Task::none();
+        }
+        if mods.command() && matches!(key.as_ref(), Key::Character(",")) {
+            self.settings_open = Some(settings_window::Group::Places);
+            return Task::none();
+        }
         if self.naming.is_some() && matches!(key.as_ref(), Key::Named(Named::Escape)) {
             self.naming = None;
             return Task::none();
@@ -549,7 +575,7 @@ impl App {
     /// always there (empty when hidden), so the window under it keeps its
     /// state (a scroll, a field's focus) when the list comes up.
     fn view(&self) -> Element<'_, Message> {
-        iced::widget::stack![self.page(), self.help_layer()].into()
+        iced::widget::stack![self.page(), self.settings_layer(), self.help_layer()].into()
     }
 
     fn help_layer(&self) -> Element<'_, Message> {
@@ -575,9 +601,7 @@ impl App {
         .padding(18)
         .max_height(720)
         .style(container::rounded_box);
-        // A click outside closes it; inside, nothing below takes it.
-        let shade = container(iced::widget::center(iced::widget::opaque(card))).width(Length::Fill).height(Length::Fill).style(|_| container::Style::default().background(iced::Color::from_rgba(0.0, 0.0, 0.0, 0.55)));
-        iced::widget::opaque(iced::widget::mouse_area(shade).on_press(Message::Help))
+        modal(card, Message::Help)
     }
 
     fn page(&self) -> Element<'_, Message> {
@@ -589,7 +613,8 @@ impl App {
             top = top.push(text(format!("making posters: {} left", self.making.len())).size(13));
         }
         let keys = tip(button(text("Keys").size(13)).padding([4, 10]).style(button::secondary).on_press(Message::Help), text("The keys and the mouse (F1)"), tooltip::Position::Bottom);
-        let top = top.push(sizes).push(keys).push(open);
+        let settings = tip(button(text("Settings").size(13)).padding([4, 10]).style(button::secondary).on_press(Message::Settings), text("Places and look (Ctrl+,)"), tooltip::Position::Bottom);
+        let top = top.push(sizes).push(keys).push(settings).push(open);
         // Home first in the bar, while a contact sheet is open.
         let top = if self.at_home { top } else { row![button(text("⌂ Home").size(13)).padding([4, 10]).style(button::secondary).on_press(Message::Home), top].spacing(10).align_y(Alignment::Center) };
         let mut page = column![container(top).padding([10, 16])];
