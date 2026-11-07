@@ -8,7 +8,7 @@ description: The rules for changing Dailix's code, and the checks before a commi
 `docs/CONTEXT.md` holds the why ("Published some day", "Don't inherit,
 improve"); `docs/SHEET-CORE.md` the sheet core's design. This page is what
 to hold in mind while writing, learned from the audit of 2026-11-05 (its
-list: `../omnix-360-studio/docs/omnix/AUDIT.md`): the cost was the same
+list: in Omnix's git history; what was kept: its `docs/omnix/ARCHITECTURE.md`): the cost was the same
 fact written in several places, and rules living in UI handlers untested.
 
 ## Before writing
