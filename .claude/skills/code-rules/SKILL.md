@@ -21,7 +21,7 @@ fact written in several places, and rules living in UI handlers untested.
 - **Look for the place it already lives**, here and in Omnix
   (`../omnix-360-studio`): one clock (`dailix_sheet::clock`), one role
   table (`Sheet::all_roles`), `is_day`, `Layout` for every folder name,
-  Omnix's `viewer::jpeg_frame` for frames, `rosmo360::app_dir` for folders.
+  Omnix's `ffmpeg::jpeg_frame` for frames, `omnix::fsutil::app_dir` for folders.
   Omnix links `dailix_sheet`: grep both repos before calling a `pub` item
   unused.
 - **The sheet file is kept as read**, byte for byte (key order, number
@@ -43,11 +43,34 @@ fact written in several places, and rules living in UI handlers untested.
   `allow(dead_code)`.
 - Licence MIT OR Apache-2.0; no vendor SDKs.
 
+## Habits that grew into a refactor
+
+Omnix's timeline took a two-day cleanup (2026-11-06/07) for five habits;
+Dailix's window is young, so hold to their opposite from the start (the
+long form, with examples: Omnix's `.claude/skills/code-rules`).
+
+- **One question, one answer**: what's under the pointer, what a key
+  does, which panel owns a place: one function, read by every caller.
+- **The second copy is the moment to share**: a card, a tag, a strip
+  drawn twice gets its helper in the same commit.
+- **A view shows the model; it doesn't restate it**: it holds the
+  sheet's or footage's item and only what the window loads (posters,
+  frames), never a field copied under a new name.
+- **A derived value is a method** (a segment's length, a day's clips
+  rated): written once, in the core where it can be.
+- **Don't store what follows from something else**: store what the user
+  chose, derive the rest.
+- **Functions stay short** (~80 lines, a match arm ~15): split before
+  adding. **Clean as you go**: a broken rule in what you touch is fixed
+  first, in its own commit.
+- **Sizes relative to the box**, tried at the smallest and largest window
+  and scale.
+
 ## Before each commit
 
 ```sh
 export PATH=$HOME/.cargo/bin:$PATH PKG_CONFIG_PATH=../omnix-360-studio/.localdeps/root/usr/lib/x86_64-linux-gnu/pkgconfig
-cargo build -q && cargo test -q
+cargo build -q && cargo test -q    # never commit what doesn't build
 (cd ../omnix-360-studio && cargo build -q && cargo test -q --lib)   # it links dailix_sheet
 ```
 
