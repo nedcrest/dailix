@@ -90,6 +90,10 @@ enum Message {
     /// Pick a project folder; the folder picked, if one was.
     Open,
     Opened(Option<PathBuf>),
+    /// The projects place chosen on the home view (a folder dialog), and
+    /// what was chosen.
+    ChooseProjects,
+    ProjectsChosen(Option<PathBuf>),
     /// A clip rated (none: unrated again).
     Rate(String, Option<u8>),
     DayEdit(String, text_editor::Action),
@@ -349,7 +353,7 @@ impl App {
                 self.width = s.width;
             }
             Message::Help => self.help = !self.help,
-            m @ (Message::ToOmnix(..) | Message::EmptyDay(..) | Message::Name(_) | Message::NameEdit(_) | Message::NameSave | Message::Home | Message::OpenDay(..)) => return self.on_home(m),
+            m @ (Message::ToOmnix(..) | Message::EmptyDay(..) | Message::Name(_) | Message::NameEdit(_) | Message::NameSave | Message::Home | Message::OpenDay(..) | Message::ChooseProjects | Message::ProjectsChosen(_)) => return self.on_home(m),
             Message::Grip => self.grip = Some(None),
             Message::Pointer(p) => {
                 // Moved left, the pane widens; up to half the window.

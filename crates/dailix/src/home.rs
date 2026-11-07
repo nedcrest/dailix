@@ -51,6 +51,26 @@ impl App {
                     }
                 }
             }
+            Message::ChooseProjects => {
+                let start = self.settings.projects.clone();
+                return Task::perform(
+                    async move {
+                        let mut d = rfd::AsyncFileDialog::new().set_title("The projects folder");
+                        if let Some(s) = start {
+                            d = d.set_directory(s);
+                        }
+                        d.pick_folder().await.map(|f| f.path().to_owned())
+                    },
+                    Message::ProjectsChosen,
+                );
+            }
+            Message::ProjectsChosen(Some(folder)) => {
+                self.settings.projects = Some(folder);
+                if let Err(e) = self.settings.save() {
+                    self.error = Some(format!("The settings couldn't be saved: {e}"));
+                }
+                self.refresh_home();
+            }
             Message::Home => {
                 self.save_note();
                 self.pane = pane::Pane::default();
@@ -105,18 +125,20 @@ impl App {
             };
             let path = p.path.as_ref().map(|p| p.display().to_string()).unwrap_or_default();
             let online = p.online;
-            super::tip(
-                container(text(state).size(13)).padding([4, 10]).style(move |t: &Theme| {
-                    let mut s = container::rounded_box(t);
-                    if !online {
-                        s.text_color = Some(t.extended_palette().background.strong.text);
-                    }
-                    s
-                }),
-                text(path),
-                tooltip::Position::Bottom,
-            )
-            .into()
+            let chip = container(text(state).size(13)).padding([4, 10]).style(move |t: &Theme| {
+                let mut s = container::rounded_box(t);
+                if !online {
+                    s.text_color = Some(t.extended_palette().background.strong.text);
+                }
+                s
+            });
+            // The projects place is chosen here (user, 2026-11-07); the
+            // others still by `dailix places`.
+            if p.name == library::PROJECTS {
+                let hint = if path.is_empty() { "Choose the projects folder".to_owned() } else { format!("{path}\nClick to choose another folder") };
+                return super::tip(button(chip).padding(0).style(button::text).on_press(Message::ChooseProjects), text(hint), tooltip::Position::Bottom);
+            }
+            super::tip(chip, text(path), tooltip::Position::Bottom)
         };
         row(self.places.iter().map(chip)).spacing(8).align_y(Alignment::Center).into()
     }

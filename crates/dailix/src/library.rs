@@ -108,10 +108,13 @@ pub struct Place {
     pub free: Option<u64>,
 }
 
+/// The projects place's name among the places.
+pub const PROJECTS: &str = "projects";
+
 /// The three places as set.
 pub fn places(s: &Settings) -> Vec<Place> {
     let sources = s.sources.as_ref().map(|Sources::Folder { path }| path.clone());
-    [("TMP", s.tmp.clone()), ("projects", s.projects.clone()), ("sources", sources)]
+    [("TMP", s.tmp.clone()), (PROJECTS, s.projects.clone()), ("sources", sources)]
         .into_iter()
         .map(|(name, path)| {
             let online = path.as_ref().is_some_and(|p| p.is_dir());

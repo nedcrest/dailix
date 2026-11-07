@@ -31,22 +31,19 @@ pub struct Settings {
     pub pane_share: Option<f32>,
 }
 
-/// The folder of Dailix's settings, by the platform's custom.
-pub fn config_dir() -> Option<PathBuf> {
-    omnix::app_dir(omnix::AppDir::Config, "dailix")
-}
 
 impl Settings {
     /// The settings saved, or the defaults (no places set).
     pub fn load() -> Settings {
-        config_dir().and_then(|d| std::fs::read(d.join("settings.json")).ok()).and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default()
+        // Where Omnix looks for it too (its projects place at first).
+        omnix::dailix_settings().and_then(|f| std::fs::read(f).ok()).and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default()
     }
 
     pub fn save(&self) -> std::io::Result<()> {
-        let dir = config_dir().ok_or_else(|| std::io::Error::other("no configuration folder (HOME unset)"))?;
-        std::fs::create_dir_all(&dir)?;
+        let file = omnix::dailix_settings().ok_or_else(|| std::io::Error::other("no configuration folder (HOME unset)"))?;
+        std::fs::create_dir_all(file.parent().unwrap_or(&file))?;
         let text = serde_json::to_string_pretty(self).map_err(std::io::Error::other)?;
-        std::fs::write(dir.join("settings.json"), text)
+        std::fs::write(file, text)
     }
 
     /// The places, a line each, for `dailix places`.
@@ -63,6 +60,13 @@ impl Settings {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn omnix_reads_the_projects_place_as_saved() {
+        let s = Settings { projects: Some("/p".into()), ..Settings::default() };
+        assert_eq!(omnix::projects_place_in(&serde_json::to_vec_pretty(&s).unwrap()), Some("/p".into()));
+        assert_eq!(omnix::projects_place_in(&serde_json::to_vec(&Settings::default()).unwrap()), None);
+    }
 
     #[test]
     fn settings_read_back_and_old_files_still_open() {
