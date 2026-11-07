@@ -87,6 +87,10 @@ struct App {
     places: Vec<crate::library::Place>,
     /// A project being named on the home view: its folder, the name typed.
     naming: Option<(PathBuf, String)>,
+    /// The trip whose page the home view shows (none: the trips' cards),
+    /// and its description and tags as typed there.
+    trip_open: Option<PathBuf>,
+    about: (String, String),
 }
 
 #[derive(Debug, Clone)]
@@ -126,6 +130,14 @@ enum Message {
     Home,
     /// A project's name clicked on the home view: named there.
     Name(PathBuf),
+    /// A trip's page opened from its card; its description and tags typed
+    /// (saved when typing ends: Enter or leaving the page); an edit of it
+    /// opened in Omnix.
+    OpenTrip(PathBuf),
+    AboutDescription(String),
+    AboutTags(String),
+    AboutSave,
+    OpenEdit(PathBuf),
     NameEdit(String),
     /// The name typed kept (Enter); Esc lets it go.
     NameSave,
@@ -223,10 +235,13 @@ fn tip<'a>(content: impl Into<Element<'a, Message>>, label: impl Into<Element<'a
 impl App {
     fn new(open: Option<PathBuf>) -> (App, Task<Message>) {
         let settings = Settings::load();
-        let mut app = App { project: None, error: None, making: HashSet::new(), drafts: HashMap::new(), dirty: HashSet::new(), selected: None, pane: pane::Pane::default(), height: 920.0, scale: settings.scale.unwrap_or(1.0), width: 1500.0, pane_share: settings.pane_share.unwrap_or(pane::SHARE), grip: None, help: false, settings_open: None, at_home: true, trips: Vec::new(), places: Vec::new(), naming: None, settings };
+        let mut app = App { project: None, error: None, making: HashSet::new(), drafts: HashMap::new(), dirty: HashSet::new(), selected: None, pane: pane::Pane::default(), height: 920.0, scale: settings.scale.unwrap_or(1.0), width: 1500.0, pane_share: settings.pane_share.unwrap_or(pane::SHARE), grip: None, help: false, settings_open: None, at_home: true, trips: Vec::new(), places: Vec::new(), naming: None, trip_open: None, about: Default::default(), settings };
         // A project named opens; else where the window was left (home on
         // the first run, or when it was left there).
         app.refresh_home();
+        if let Some(trip) = app.settings.last_trip.clone().filter(|r| Layout::new(r).is_project()) {
+            app.open_trip(trip);
+        }
         let left = app.settings.last.clone().filter(|r| Layout::new(r).is_project());
         let clip = app.settings.last_clip.clone().filter(|_| open.is_none());
         let task = match open.or(left) {
@@ -376,7 +391,7 @@ impl App {
                 self.width = s.width;
             }
             Message::Help => self.help = !self.help,
-            m @ (Message::ToOmnix(..) | Message::EmptyDay(..) | Message::Name(_) | Message::NameEdit(_) | Message::NameSave | Message::Home | Message::OpenDay(..)) => return self.on_home(m),
+            m @ (Message::ToOmnix(..) | Message::EmptyDay(..) | Message::Name(_) | Message::NameEdit(_) | Message::NameSave | Message::Home | Message::OpenDay(..) | Message::OpenTrip(_) | Message::AboutDescription(_) | Message::AboutTags(_) | Message::AboutSave | Message::OpenEdit(_)) => return self.on_home(m),
             m @ (Message::Settings | Message::SettingsGroup(_) | Message::ChoosePlace(_) | Message::PlaceChosen(..)) => return self.on_settings(m),
             Message::Grip => self.grip = Some(None),
             Message::Pointer(p) => {

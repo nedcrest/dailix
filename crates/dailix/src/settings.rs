@@ -48,6 +48,8 @@ pub struct Settings {
     /// the first run at home, every run after where it was closed).
     pub last: Option<PathBuf>,
     pub last_clip: Option<String>,
+    /// The trip whose page was shown on the home view, if one was.
+    pub last_trip: Option<PathBuf>,
     /// The interface's size; none: as it comes (1.0).
     pub scale: Option<f32>,
     /// The player pane's share of the window's width, as dragged.
@@ -121,7 +123,7 @@ mod tests {
 
     #[test]
     fn settings_read_back_and_old_files_still_open() {
-        let s = Settings { tmp: Some("/t".into()), projects: Some("/p".into()), sources: Some(Sources::Folder { path: "/s".into() }), last: None, last_clip: None, scale: None, pane_share: None };
+        let s = Settings { tmp: Some("/t".into()), projects: Some("/p".into()), sources: Some(Sources::Folder { path: "/s".into() }), last: None, last_clip: None, last_trip: None, scale: None, pane_share: None };
         let text = serde_json::to_string(&s).unwrap();
         assert!(text.contains(r#""sources":{"kind":"folder","path":"/s"}"#), "{text}");
         assert_eq!(serde_json::from_str::<Settings>(&text).unwrap(), s);

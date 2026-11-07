@@ -26,17 +26,33 @@ pub struct Day {
     pub in_sources: Option<bool>,
 }
 
-/// A trip: a project, its days.
+/// A trip: a project, what was written about it, its days and its edits.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Trip {
     pub root: PathBuf,
     pub title: String,
+    pub about: dailix_sheet::project::About,
     pub days: Vec<Day>,
+    pub edits: Vec<PathBuf>,
 }
 
 impl Trip {
     pub fn clips(&self) -> usize {
         self.days.iter().map(|d| d.clips).sum()
+    }
+
+    /// Its first day's poster that's made, for its card.
+    pub fn poster(&self) -> Option<&Path> {
+        self.days.iter().find_map(|d| d.poster.as_deref())
+    }
+
+    /// Its first and last day: «a – b», or one day.
+    pub fn dates(&self) -> String {
+        match (self.days.first(), self.days.last()) {
+            (Some(a), Some(b)) if a.day != b.day => format!("{} – {}", a.day, b.day),
+            (Some(a), _) => a.day.clone(),
+            _ => String::new(),
+        }
     }
 }
 
@@ -74,7 +90,7 @@ pub fn trip(root: &Path) -> Result<Trip, String> {
             in_sources: sources.as_ref().filter(|s| s.is_dir()).map(|s| s.join(&d.day).is_dir()),
         })
         .collect();
-    Ok(Trip { root: root.to_owned(), title, days })
+    Ok(Trip { root: root.to_owned(), title, about: dailix_sheet::project::about(root), days, edits: dailix_sheet::project::edits(root) })
 }
 
 /// The trips as text, a line per trip and per day: what the home view
