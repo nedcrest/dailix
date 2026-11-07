@@ -224,12 +224,17 @@ impl App {
     fn new(open: Option<PathBuf>) -> (App, Task<Message>) {
         let settings = Settings::load();
         let mut app = App { project: None, error: None, making: HashSet::new(), drafts: HashMap::new(), dirty: HashSet::new(), selected: None, pane: pane::Pane::default(), height: 920.0, scale: settings.scale.unwrap_or(1.0), width: 1500.0, pane_share: settings.pane_share.unwrap_or(pane::SHARE), grip: None, help: false, settings_open: None, at_home: true, trips: Vec::new(), places: Vec::new(), naming: None, settings };
-        // Home first, unless a project was named.
+        // A project named opens; else where the window was left (home on
+        // the first run, or when it was left there).
         app.refresh_home();
-        let task = match open {
+        let left = app.settings.last.clone().filter(|r| Layout::new(r).is_project());
+        let clip = app.settings.last_clip.clone().filter(|_| open.is_none());
+        let task = match open.or(left) {
             Some(root) => {
                 app.at_home = false;
-                app.load(root)
+                let load = app.load(root);
+                let pick = clip.filter(|k| app.project.as_ref().is_some_and(|p| p.footage.days.iter().flat_map(|d| &d.clips).any(|c| &c.key == k))).map_or_else(Task::none, |k| app.select(k));
+                Task::batch([load, pick])
             }
             None => Task::none(),
         };
@@ -353,6 +358,10 @@ impl App {
     /// Picks `key` and asks where its tile is, to scroll to it.
     fn select(&mut self, key: String) -> Task<Message> {
         self.selected = Some(key.clone());
+        if self.settings.last_clip.as_ref() != Some(&key) {
+            self.settings.last_clip = Some(key.clone());
+            let _ = self.settings.save();
+        }
         let open = self.open_clip(&key);
         let place = iced::advanced::widget::operate(Find { tile: iced::widget::Id::from(key), list: None, found: None }).map(Message::Placed);
         Task::batch([open, place])
@@ -615,8 +624,9 @@ impl App {
         let keys = tip(button(text("Keys").size(13)).padding([4, 10]).style(button::secondary).on_press(Message::Help), text("The keys and the mouse (F1)"), tooltip::Position::Bottom);
         let settings = tip(button(text("Settings").size(13)).padding([4, 10]).style(button::secondary).on_press(Message::Settings), text("Places and look (Ctrl+,)"), tooltip::Position::Bottom);
         let top = top.push(sizes).push(keys).push(settings).push(open);
-        // Home first in the bar, while a contact sheet is open.
-        let top = if self.at_home { top } else { row![button(text("⌂ Home").size(13)).padding([4, 10]).style(button::secondary).on_press(Message::Home), top].spacing(10).align_y(Alignment::Center) };
+        // Home first in the bar, always; lit while it's shown.
+        let home = button(text("⌂ Home").size(13)).padding([4, 10]).style(if self.at_home { button::primary } else { button::secondary }).on_press(Message::Home);
+        let top = row![tip(home, text("The projects and their days"), tooltip::Position::Bottom), top].spacing(10).align_y(Alignment::Center);
         let mut page = column![container(top).padding([10, 16])];
         if let Some(e) = &self.error {
             page = page.push(container(text(e.clone()).size(13).style(text::danger)).padding([0, 16]));

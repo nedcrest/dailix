@@ -45,10 +45,7 @@ impl Trip {
 pub fn trips(projects: &Path) -> (Vec<Trip>, Vec<String>) {
     let mut out = Vec::new();
     let mut skipped = Vec::new();
-    let Ok(entries) = std::fs::read_dir(projects) else { return (out, skipped) };
-    let mut roots: Vec<PathBuf> = entries.flatten().map(|e| e.path()).filter(|p| Layout::new(p).is_project()).collect();
-    roots.sort();
-    for root in roots {
+    for root in dailix_sheet::project::all(projects) {
         match trip(&root) {
             Ok(t) => out.push(t),
             Err(e) => skipped.push(format!("{}: {e}", root.display())),

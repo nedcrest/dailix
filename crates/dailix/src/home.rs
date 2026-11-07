@@ -56,6 +56,10 @@ impl App {
                 self.pane = pane::Pane::default();
                 self.selected = None;
                 self.at_home = true;
+                // Closed here, the next start opens here.
+                self.settings.last = None;
+                self.settings.last_clip = None;
+                let _ = self.settings.save();
                 self.refresh_home();
             }
             Message::OpenDay(root, day) => {
