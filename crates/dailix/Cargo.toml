@@ -17,6 +17,8 @@ rfd.workspace = true
 # needs ALSA's headers (Omnix's own .localdeps on the dev machine).
 omnix = { path = "../../../omnix-360-studio" }
 schemars.workspace = true
+# The system's trash, for what tidying takes away (as Omnix's bin).
+trash = { version = "5", default-features = false }
 
 # Free space on a disk (statvfs), for the home view's places.
 [target.'cfg(unix)'.dependencies]

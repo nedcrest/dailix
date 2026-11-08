@@ -59,6 +59,15 @@ enum Command {
     /// A project's name as people say it: shows it, or sets it (an empty
     /// one gives back the folder's name). The folder isn't renamed.
     Title { project: PathBuf, title: Option<String> },
+    /// The edits lying loose in a project's old 04_project, each moved
+    /// into a video of its own (videos/<name>/edit.json); copies and empty
+    /// ones to the trash, other files left. Says what it would do; does it
+    /// with --apply.
+    TidyEdits {
+        project: PathBuf,
+        #[arg(long)]
+        apply: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -144,7 +153,7 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
             let mut shown = 0;
             import::run(&plan, |done, total| {
                 // A line every 5 % or so.
-                let pct = if total == 0 { 100 } else { done * 100 / total };
+                let pct = (done * 100).checked_div(total).unwrap_or(100);
                 if pct >= shown + 5 || done == total {
                     shown = pct;
                     println!("{pct:>3} %  {:.1} of {:.1} GB", gb(done), gb(total));
@@ -170,6 +179,43 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
                 dailix_sheet::project::set_title(&project, &t)?;
             }
             println!("{}", dailix_sheet::project::title(&project));
+            return Ok(());
+        }
+        Command::TidyEdits { project, apply } => {
+            use dailix_sheet::project::Tidy;
+            if !dailix_sheet::Layout::new(&project).is_project() {
+                return Err(format!("not a Dailix project: {}", project.display()).into());
+            }
+            for t in dailix_sheet::project::tidy_old_edits(&project) {
+                match t {
+                    Tidy::Move { from, to } => {
+                        println!("move   {} → {}", from.display(), to.display());
+                        if apply {
+                            std::fs::create_dir_all(to.parent().unwrap_or(&to))?;
+                            std::fs::rename(&from, &to)?;
+                        }
+                    }
+                    Tidy::Same { path, as_ } => {
+                        println!("trash  {} (the same as {})", path.display(), as_.display());
+                        if apply {
+                            trash::delete(&path)?;
+                        }
+                    }
+                    Tidy::Empty { path } => {
+                        println!("trash  {} (empty)", path.display());
+                        if apply {
+                            trash::delete(&path)?;
+                        }
+                    }
+                    Tidy::Other { path } => println!("keep   {} (not an Omnix edit)", path.display()),
+                }
+            }
+            // The old folder goes once nothing's left in it.
+            let old = dailix_sheet::Layout::new(&project).old_edits();
+            if apply && std::fs::read_dir(&old).is_ok_and(|mut d| d.next().is_none()) {
+                std::fs::remove_dir(&old)?;
+                println!("gone   {}", old.display());
+            }
             return Ok(());
         }
         Command::Install => {

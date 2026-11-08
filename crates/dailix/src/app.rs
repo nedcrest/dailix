@@ -671,7 +671,7 @@ impl App {
         let rated = day.clips.iter().filter(|c| p.sheet.clips.get(&c.key).is_some_and(|s| s.rating.is_some())).count();
         let to_omnix = tip(
             button(text("→ Omnix").size(13)).padding([3, 10]).style(button::secondary).on_press(Message::ToOmnix(p.footage.layout.root.clone(), Some(day.day.clone()))),
-            text("An edit of this day from its marking, opened in Omnix (a new file in 04_project)"),
+            text("An edit of this day from its marking, opened in Omnix (a new video of the trip)"),
             tooltip::Position::Bottom,
         );
         let empty = tip(

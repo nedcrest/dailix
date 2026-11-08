@@ -170,7 +170,7 @@ impl App {
         };
         let mut info = column![
             text(trip.title.clone()).size(17),
-            text(format!("{} · {} days · {} clips · {} edits", trip.dates(), trip.days.len(), trip.clips(), trip.edits.len())).size(12).style(text::secondary),
+            text(format!("{} · {} days · {} clips · {} videos", trip.dates(), trip.days.len(), trip.clips(), trip.edits.len())).size(12).style(text::secondary),
         ]
         .spacing(4)
         .width(TRIP_CARD);
@@ -209,12 +209,12 @@ impl App {
         ]
         .spacing(6)
         .max_width(760);
-        let mut edits = column![text("Edits").size(15)].spacing(4);
+        let mut edits = column![text("Videos").size(15)].spacing(4);
         if trip.edits.is_empty() {
             edits = edits.push(text("None yet: → Omnix or Empty edit make one.").size(12).style(text::secondary));
         }
         for e in &trip.edits {
-            let name = e.file_stem().map_or_else(String::new, |s| s.to_string_lossy().into_owned());
+            let name = dailix_sheet::project::edit_name(e);
             edits = edits.push(super::tip(button(text(name).size(14)).padding([3, 8]).style(button::text).on_press(Message::OpenEdit(e.clone())), text("Open in Omnix"), tooltip::Position::Right));
         }
         let cards = iced::widget::row(trip.days.iter().map(|d| self.day_card(trip, d))).spacing(10).wrap().vertical_spacing(10);
