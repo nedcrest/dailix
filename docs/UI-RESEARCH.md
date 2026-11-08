@@ -8,6 +8,13 @@ check before relying on exact names or shortcuts.
 Dailix's four steps, for reference: **bring in → choose → file → hand off.**
 The overall goal is to make the file manager unnecessary.
 
+Taken so far (2026-11-09): the top 10's 3 in a changed shape (Home is a
+page of trip cards; a trip's page lists its days and its videos, gap
+82), 4 (P ? X U with auto-advance) and 5 (I / O and a role key, drawn
+on the player's strip, not yet on the tiles). The
+ingest parts (1, 2, 8, 9) wait with `INGEST.md`; the sketches below are
+the research's, not the window as built.
+
 ---
 
 ## 1. Ingest / offload

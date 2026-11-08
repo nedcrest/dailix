@@ -4,7 +4,9 @@ Designed and approved 2026-11-04 and built the same day (steps 1-8
 below), as Omnix's `OPS-API.md` was for projects. The reference for the
 core: the format, the model, the ops, the store, the CLI. The user: start the move to Rust with the
 contact sheet's core; "a core API for the contact sheet too, so changes
-are easier in both places at once".
+are easier in both places at once". `notes.json` is footage-agent's name
+for the file; in a Dailix project it is `dailix/sheet.json`, the same
+format (`Layout::sheet`).
 
 ## Why a core, and why first
 
@@ -201,7 +203,7 @@ dependency becomes a git or crates.io one.
    pass. Omnix depends on `../dailix/crates/sheet` by path.
 8. **Docs** — done: this page, both contexts, the roadmap.
 
-Then the studio's window (the next plan), on this core.
+The studio's window came next, on this core, and is built (`docs/CONTEXT.md`).
 
 ## Decided (user, 2026-11-04)
 

@@ -172,4 +172,8 @@ for the tests and an AI:
    it now.
 
 Implementation deferred by the user (2026-11-05): Kos is marked and its
-edit goes on in Omnix; this design waits for its turn.
+edit goes on in Omnix; this design waits for its turn. Still waiting
+(2026-11-09): its first step, one's own videos into a project (Omnix
+roadmap «Dailix: свої відео в проєкт», gaps 74 with 80), comes after
+Omnix's milestone «Ефекти, колір і розумний звук». The chosen clips
+land in a trip whose videos sit in `videos/<name>/` (gap 82).

@@ -21,7 +21,7 @@ fact written in several places, and rules living in UI handlers untested.
 - **Look for the place it already lives**, here and in Omnix
   (`../omnix-360-studio`): one clock (`dailix_sheet::clock`), one role
   table (`Sheet::all_roles`), `is_day`, `Layout` for every folder name,
-  Omnix's `ffmpeg::jpeg_frame` for frames, `omnix::fsutil::app_dir` for folders.
+  Omnix's `omnix::viewer::jpeg_frame` for frames, `omnix::app_dir` for folders.
   Omnix links `dailix_sheet`: grep both repos before calling a `pub` item
   unused.
 - **The sheet file is kept as read**, byte for byte (key order, number

@@ -6,10 +6,11 @@ takes it off cards and phones, lets you look through it and mark what's
 worth keeping, files the originals away, and hands the chosen material to
 an editor (Omnix, `../omnix-360-studio`). Rust, built the way Omnix is.
 
-Status: the contact sheet works (home view, days, rating, segments,
-flags, the player, «→ Omnix»), on a core with a command line; it replaces
-footage-agent's web contact sheet. Bringing footage in is designed
-(`docs/INGEST.md`), not built.
+Status: the contact sheet works (Home of trip cards, a trip's page,
+days, rating, segments, flags, the player, «→ Omnix»), on a core with a
+command line; it replaces footage-agent's web contact sheet. A trip holds
+its videos, each with its edit and exports; a new trip is made here.
+Bringing footage in is designed (`docs/INGEST.md`), not built.
 
 ## Three places
 
@@ -55,8 +56,8 @@ a program keeps lives in `dailix/` beside them.
   01_footage/<day>/<clip>    the clips chosen for this project (copies)
   02_audio/music, 02_audio/voiceover
   03_proxies/<day>/<clip>    light copies for quick editing (none made yet)
-  04_project                 edits: .json for Omnix, .mlt for Kdenlive
-  05_export                  finished videos
+  videos/<name>/             a video of the trip: edit.json (Omnix's edit)
+                             and export/ (its finished files)
   06_external                outside video: memes, inserts, transitions
   07_sfx                     sound effects
   08_graphics                pictures over the video
@@ -75,12 +76,19 @@ A clip is named in the marking by its path under `01_footage`:
 ## Command line
 
 ```text
-dailix                         the window (the last project, or pick one)
+dailix                         the window, where it was left (Home the first time)
+dailix open <project>          the window on that project
+dailix new-trip [title]        a new trip in the projects place (no title: the form)
+dailix places [...]            the three places: shows them, or sets those given
+dailix trips                   the trips and their days, as Home sums them up
+dailix title <project> [name]  a project's name as people say it
+dailix tidy-edits <project>    old loose edits moved into videos/<name>/ (--apply)
+dailix import-legacy <old>      a footage-agent project made into a Dailix one
 dailix sheet apply <sheet> <ops.json|->   change a marking: checked, all or none
 dailix sheet check <sheet>     what's wrong with a marking
 dailix sheet describe <sheet>  a marking as text, a line per clip and segment
 dailix sheet schema [ops|sheet]
-dailix install                 the icon and a desktop entry (Linux)
+dailix install                 the icon and a desktop entry (Linux; Omnix's installer)
 ```
 
 The marking's format and the ops that change it: `docs/SHEET-CORE.md`.
