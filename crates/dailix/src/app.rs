@@ -10,6 +10,8 @@ mod pane;
 mod home;
 #[path = "settings_window.rs"]
 mod settings_window;
+#[path = "new_trip.rs"]
+mod new_trip;
 
 use dailix_sheet::footage::{self, Footage};
 use crate::settings::Settings;
@@ -25,8 +27,16 @@ const TILE: f32 = 240.0;
 /// second on a CPU).
 const POSTER_THREADS: usize = 4;
 
-pub fn run(open: Option<PathBuf>) -> iced::Result {
-    iced::application(move || App::new(open.clone()), App::update, App::view)
+/// How the window starts: on a project (or where it was left), or on the
+/// new trip's form (Omnix's «New trip…»).
+#[derive(Clone, Debug)]
+pub enum Start {
+    Where(Option<PathBuf>),
+    NewTrip,
+}
+
+pub fn run(start: Start) -> iced::Result {
+    iced::application(move || App::new(start.clone()), App::update, App::view)
         .title(App::title)
         .subscription(App::subscription)
         .scale_factor(|app: &App| app.scale)
@@ -91,6 +101,8 @@ struct App {
     /// and its description and tags as typed there.
     trip_open: Option<PathBuf>,
     about: (String, String),
+    /// The new trip's form, while open.
+    new_trip: Option<new_trip::Draft>,
 }
 
 #[derive(Debug, Clone)]
@@ -138,6 +150,14 @@ enum Message {
     AboutTags(String),
     AboutSave,
     OpenEdit(PathBuf),
+    /// The new trip's form: opened, typed in, made, cancelled.
+    NewTrip,
+    NewTripTitle(String),
+    NewTripFolder(String),
+    NewTripDescription(String),
+    NewTripTags(String),
+    NewTripMake,
+    NewTripCancel,
     NameEdit(String),
     /// The name typed kept (Enter); Esc lets it go.
     NameSave,
@@ -233,16 +253,27 @@ fn tip<'a>(content: impl Into<Element<'a, Message>>, label: impl Into<Element<'a
 }
 
 impl App {
-    fn new(open: Option<PathBuf>) -> (App, Task<Message>) {
+    fn new(start: Start) -> (App, Task<Message>) {
+        let (open, new_trip) = match start {
+            Start::Where(p) => (p, false),
+            Start::NewTrip => (None, true),
+        };
         let settings = Settings::load();
-        let mut app = App { project: None, error: None, making: HashSet::new(), drafts: HashMap::new(), dirty: HashSet::new(), selected: None, pane: pane::Pane::default(), height: 920.0, scale: settings.scale.unwrap_or(1.0), width: 1500.0, pane_share: settings.pane_share.unwrap_or(pane::SHARE), grip: None, help: false, settings_open: None, at_home: true, trips: Vec::new(), places: Vec::new(), naming: None, trip_open: None, about: Default::default(), settings };
+        let mut app = App { project: None, error: None, making: HashSet::new(), drafts: HashMap::new(), dirty: HashSet::new(), selected: None, pane: pane::Pane::default(), height: 920.0, scale: settings.scale.unwrap_or(1.0), width: 1500.0, pane_share: settings.pane_share.unwrap_or(pane::SHARE), grip: None, help: false, settings_open: None, at_home: true, trips: Vec::new(), places: Vec::new(), naming: None, trip_open: None, about: Default::default(), new_trip: None, settings };
         // A project named opens; else where the window was left (home on
         // the first run, or when it was left there).
         app.refresh_home();
         if let Some(trip) = app.settings.last_trip.clone().filter(|r| Layout::new(r).is_project()) {
             app.open_trip(trip);
         }
-        let left = app.settings.last.clone().filter(|r| Layout::new(r).is_project());
+        let left = app.settings.last.clone().filter(|r| !new_trip && Layout::new(r).is_project());
+        // Omnix's «New trip…»: home, the form open.
+        let form = if new_trip {
+            app.trip_open = None;
+            app.update(Message::NewTrip)
+        } else {
+            Task::none()
+        };
         let clip = app.settings.last_clip.clone().filter(|_| open.is_none());
         let task = match open.or(left) {
             Some(root) => {
@@ -255,7 +286,7 @@ impl App {
         };
         // The window's real size, before any resize says it.
         let size = iced::window::latest().and_then(iced::window::size).map(Message::Resized);
-        (app, Task::batch([task, size]))
+        (app, Task::batch([task, size, form]))
     }
 
     fn title(&self) -> String {
@@ -393,6 +424,7 @@ impl App {
             Message::Help => self.help = !self.help,
             m @ (Message::ToOmnix(..) | Message::EmptyDay(..) | Message::Name(_) | Message::NameEdit(_) | Message::NameSave | Message::Home | Message::OpenDay(..) | Message::OpenTrip(_) | Message::AboutDescription(_) | Message::AboutTags(_) | Message::AboutSave | Message::OpenEdit(_)) => return self.on_home(m),
             m @ (Message::Settings | Message::SettingsGroup(_) | Message::ChoosePlace(_) | Message::PlaceChosen(..)) => return self.on_settings(m),
+            m @ (Message::NewTrip | Message::NewTripTitle(_) | Message::NewTripFolder(_) | Message::NewTripDescription(_) | Message::NewTripTags(_) | Message::NewTripMake | Message::NewTripCancel) => return self.on_new_trip(m),
             Message::Grip => self.grip = Some(None),
             Message::Pointer(p) => {
                 // Moved left, the pane widens; up to half the window.
@@ -496,12 +528,22 @@ impl App {
             }
             return Task::none();
         }
+        // The new trip's form: Esc closes it; its fields take the rest.
+        if self.new_trip.is_some() {
+            if matches!(key.as_ref(), Key::Named(Named::Escape)) {
+                self.new_trip = None;
+            }
+            return Task::none();
+        }
         // The Settings window: Esc closes it, the rest wait.
         if self.settings_open.is_some() {
             if matches!(key.as_ref(), Key::Named(Named::Escape)) {
                 self.settings_open = None;
             }
             return Task::none();
+        }
+        if mods.command() && matches!(key.as_ref(), Key::Character("n")) {
+            return self.update(Message::NewTrip);
         }
         if mods.command() && matches!(key.as_ref(), Key::Character(",")) {
             self.settings_open = Some(settings_window::Group::Places);
@@ -599,7 +641,7 @@ impl App {
     /// always there (empty when hidden), so the window under it keeps its
     /// state (a scroll, a field's focus) when the list comes up.
     fn view(&self) -> Element<'_, Message> {
-        iced::widget::stack![self.page(), self.settings_layer(), self.help_layer()].into()
+        iced::widget::stack![self.page(), self.settings_layer(), self.new_trip_layer(), self.help_layer()].into()
     }
 
     fn help_layer(&self) -> Element<'_, Message> {

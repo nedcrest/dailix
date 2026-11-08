@@ -27,6 +27,21 @@ struct Cli {
 enum Command {
     /// The window, on the project at this folder.
     Open { project: PathBuf },
+    /// A new trip in the projects place, in the fixed layout (user,
+    /// 2026-11-08: a new project is made here, Omnix asks for one). With a
+    /// title it's made and its folder printed; without, the window opens
+    /// on the form.
+    NewTrip {
+        title: Option<String>,
+        /// Its folder's name (default: the month and the title in Latin).
+        #[arg(long)]
+        folder: Option<String>,
+        #[arg(long, default_value = "")]
+        description: String,
+        /// Comma-separated.
+        #[arg(long, default_value = "")]
+        tags: String,
+    },
     /// The contact sheet's marking (a project's `dailix/sheet.json`).
     #[command(subcommand)]
     Sheet(SheetCmd),
@@ -103,12 +118,13 @@ fn main() -> ExitCode {
     let cli = Cli::parse();
     // The window, unless a command was given.
     let open = match &cli.command {
-        None => Some(None),
-        Some(Command::Open { project }) => Some(Some(project.clone())),
+        None => Some(app::Start::Where(None)),
+        Some(Command::Open { project }) => Some(app::Start::Where(Some(project.clone()))),
+        Some(Command::NewTrip { title: None, .. }) => Some(app::Start::NewTrip),
         _ => None,
     };
-    if let Some(project) = open {
-        return match app::run(project) {
+    if let Some(start) = open {
+        return match app::run(start) {
             Ok(()) => ExitCode::SUCCESS,
             Err(e) => {
                 eprintln!("dailix: {e}");
@@ -127,7 +143,15 @@ fn main() -> ExitCode {
 
 fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
     let cmd = match cli.command.expect("the window is opened in main") {
-        Command::Open { .. } => unreachable!("the window is opened in main"),
+        Command::Open { .. } | Command::NewTrip { title: None, .. } => unreachable!("the window is opened in main"),
+        Command::NewTrip { title: Some(title), folder, description, tags } => {
+            let place = settings::Settings::load().projects.ok_or("no projects place set (dailix places --projects …)")?;
+            let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs());
+            let folder = folder.unwrap_or_else(|| dailix_sheet::project::trip_folder(&dailix_sheet::project::month_of(now), &title));
+            let about = dailix_sheet::project::About { description, tags: dailix_sheet::project::parse_tags(&tags) };
+            println!("{}", dailix_sheet::project::new_trip(&place, &folder, &title, &about)?.display());
+            return Ok(());
+        }
         Command::Sheet(cmd) => cmd,
         Command::Places { tmp, projects, sources } => {
             let mut s = settings::Settings::load();

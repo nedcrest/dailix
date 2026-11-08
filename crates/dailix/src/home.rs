@@ -131,7 +131,10 @@ impl App {
         }
         match self.trip_open.as_ref().and_then(|r| self.trips.iter().find(|t| &t.root == r)) {
             Some(trip) => page = page.push(rule::horizontal(1)).push(self.trip_page(trip)),
-            None => page = page.push(iced::widget::row(self.trips.iter().map(|t| self.trip_card(t))).spacing(14).wrap().vertical_spacing(14)),
+            None => {
+                let new = super::tip(button(text("+ New trip").size(14)).padding([5, 12]).on_press(Message::NewTrip), text("A new trip in the projects place, in the fixed layout (Ctrl+N)"), tooltip::Position::Bottom);
+                page = page.push(new).push(iced::widget::row(self.trips.iter().map(|t| self.trip_card(t))).spacing(14).wrap().vertical_spacing(14));
+            }
         }
         scrollable(page).height(Length::Fill).into()
     }
