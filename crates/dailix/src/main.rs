@@ -9,6 +9,7 @@ mod library;
 mod editor;
 mod install;
 mod settings;
+mod voice;
 
 use clap::{Parser, Subcommand};
 use dailix_sheet::{Doc, Op, Sheet, Store};
@@ -45,6 +46,10 @@ enum Command {
     /// The contact sheet's marking (a project's `dailix/sheet.json`).
     #[command(subcommand)]
     Sheet(SheetCmd),
+    /// Clips' cleaned voices (Omnix gap 77): what's made, making one,
+    /// measuring their loudness.
+    #[command(subcommand)]
+    Voice(VoiceCmd),
     /// The three places (README): shows them, or sets those given.
     Places {
         #[arg(long)]
@@ -108,6 +113,23 @@ enum SheetCmd {
     },
 }
 
+#[derive(Subcommand)]
+enum VoiceCmd {
+    /// A line per clip with voices: each one made, its loudness, the one
+    /// the edit uses (*), and the recipes there are.
+    List { project: PathBuf },
+    /// Clip `<day>/<file>`'s voice made by a recipe (dnn6 unless asked),
+    /// from its original; made again if it's there.
+    Make {
+        project: PathBuf,
+        clip: String,
+        #[arg(long, default_value = dailix_sheet::voice::DEFAULT)]
+        recipe: String,
+    },
+    /// The loudness of every voice not measured yet (made by footage-agent).
+    Measure { project: PathBuf },
+}
+
 #[derive(Clone, Copy, clap::ValueEnum)]
 enum SchemaOf {
     Ops,
@@ -141,6 +163,32 @@ fn main() -> ExitCode {
     }
 }
 
+fn voice_cmd(cmd: VoiceCmd) -> Result<(), Box<dyn std::error::Error>> {
+    let project = match &cmd {
+        VoiceCmd::List { project } | VoiceCmd::Make { project, .. } | VoiceCmd::Measure { project } => dailix_sheet::Layout::new(project),
+    };
+    if !project.is_project() {
+        return Err(format!("not a Dailix project: {}", project.root.display()).into());
+    }
+    match cmd {
+        VoiceCmd::List { .. } => print!("{}", voice::describe(&project)?),
+        VoiceCmd::Make { clip, recipe, .. } => {
+            let recipe = dailix_sheet::voice::recipe(&recipe).ok_or_else(|| format!("no recipe {recipe}: {}", dailix_sheet::voice::RECIPES.map(|r| r.name).join(", ")))?;
+            let source = voice::source(&project, &clip)?;
+            println!("{}", voice::make(&project, &clip, &source, recipe)?.display());
+        }
+        VoiceCmd::Measure { .. } => {
+            let (footage, _) = dailix_sheet::footage::read(&project)?;
+            let mut n = 0;
+            for clip in footage.days.iter().flat_map(|d| &d.clips) {
+                n += voice::measure(&project, &clip.key)?;
+            }
+            println!("{n} measured");
+        }
+    }
+    Ok(())
+}
+
 fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
     let cmd = match cli.command.expect("the window is opened in main") {
         Command::Open { .. } | Command::NewTrip { title: None, .. } => unreachable!("the window is opened in main"),
@@ -153,6 +201,7 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
             return Ok(());
         }
         Command::Sheet(cmd) => cmd,
+        Command::Voice(cmd) => return voice_cmd(cmd),
         Command::Places { tmp, projects, sources } => {
             let mut s = settings::Settings::load();
             let changed = tmp.is_some() || projects.is_some() || sources.is_some();
