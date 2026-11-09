@@ -59,6 +59,8 @@ pub struct Pane {
     pub editor: text_editor::Content,
     editor_for: Option<String>,
     pub focused: bool,
+    /// Its sound and cleaned voices (gap 77).
+    pub voices: super::pane_voice::Voices,
 }
 
 /// A new mark's stage: its role (the highlighted choice), then its note.
@@ -111,6 +113,7 @@ pub enum PaneMsg {
     Remove,
     /// The new mark's role chosen by a click (its place in the choices).
     PendingRole(usize),
+    Voice(super::pane_voice::VoiceMsg),
 }
 
 impl App {
@@ -135,10 +138,10 @@ impl App {
             return iced::Task::none();
         }
         let Some(path) = self.project.as_ref().map(|p| p.footage.layout.clip(&key)) else { return iced::Task::none() };
-        let (k, p) = (key.clone(), path.clone());
+        let (k, p, key_for_voices) = (key.clone(), path.clone(), key.clone());
         let facts = iced::Task::perform(super::blocking(move || omnix::viewer::describe(&p).map_err(|e| format!("{e:#}"))), move |r| Message::Pane(PaneMsg::Facts(k.clone(), r)));
         let load = iced::Task::perform(super::blocking(move || omnix::viewer::load(&path).map_err(|e| format!("{e:#}"))), move |r| Message::Pane(PaneMsg::Loaded(key.clone(), Slot(Arc::new(Mutex::new(Some(r)))))));
-        iced::Task::batch([load, facts])
+        iced::Task::batch([load, facts, self.list_voices(&key_for_voices)])
     }
 
     pub(super) fn pane_busy(&self) -> bool {
@@ -190,13 +193,17 @@ impl App {
     fn pane_msg(&mut self, msg: PaneMsg) -> iced::Task<Message> {
         match msg {
             PaneMsg::Rested(key) => return self.load_clip(key),
+            PaneMsg::Voice(msg) => return self.on_voice(msg),
             PaneMsg::Loaded(key, slot) => {
                 if self.pane.key.as_deref() != Some(key.as_str()) {
                     return iced::Task::none();
                 }
                 self.pane.loading = false;
                 match slot.0.lock().ok().and_then(|mut s| s.take()) {
-                    Some(Ok(loaded)) => self.pane.viewer = Some(Viewer::new(loaded)),
+                    Some(Ok(loaded)) => {
+                        self.pane.viewer = Some(Viewer::new(loaded));
+                        self.play_heard();
+                    }
                     Some(Err(e)) => self.error = Some(e),
                     None => {}
                 }
@@ -438,6 +445,7 @@ impl App {
                     .spacing(10)
                     .align_y(Alignment::Center),
                 );
+                top = top.push(self.voice_row());
             }
             None => top = top.push(text(if self.pane.loading { "Opening…" } else { "" }).size(13).style(text::secondary)),
         }

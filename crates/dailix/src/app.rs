@@ -6,6 +6,8 @@
 
 #[path = "pane.rs"]
 mod pane;
+#[path = "pane_voice.rs"]
+mod pane_voice;
 #[path = "home.rs"]
 mod home;
 #[path = "settings_window.rs"]
