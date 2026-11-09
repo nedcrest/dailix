@@ -23,12 +23,22 @@ pub struct Voices {
     /// The recipe picked to make, and the one being made.
     pub recipe: Option<String>,
     pub making: Option<String>,
+    /// Where it holds speech, seconds (gap 83), found in a cleaned voice.
+    pub speech: Vec<(f64, f64)>,
+}
+
+/// What reading a clip's voices found.
+#[derive(Debug, Clone, Default)]
+pub struct Listed {
+    made: Vec<(String, Option<f64>)>,
+    own: Option<f64>,
+    speech: Vec<(f64, f64)>,
 }
 
 #[derive(Debug, Clone)]
 pub enum VoiceMsg {
-    /// Clip `.0`'s voices read and its own sound measured.
-    Listed(String, Vec<(String, Option<f64>)>, Option<f64>),
+    /// Clip `.0`'s voices read, its own sound measured, its speech found.
+    Listed(String, Listed),
     Hear(Option<String>),
     /// The one heard is the one the edit uses.
     Use,
@@ -38,21 +48,18 @@ pub enum VoiceMsg {
 }
 
 impl App {
-    /// Reads clip `key`'s voices and measures its own sound, off the UI
-    /// thread (a few seconds' decoding for a long clip).
+    /// Reads clip `key`'s voices, measures its own sound and finds its
+    /// speech, off the UI thread (a few seconds' decoding for a long clip).
     pub(super) fn list_voices(&self, key: &str) -> Task<Message> {
         let Some(p) = &self.project else { return Task::none() };
         let (layout, key) = (p.footage.layout.clone(), key.to_owned());
-        let clip = layout.clip(&key);
+        let chosen = self.chosen_voice();
         Task::perform(
             super::blocking(move || {
-                let made = voice::dir(&layout, &key).map(|dir| {
-                    let made = voice::made(&dir);
-                    voice::variants(&dir).into_iter().map(|n| (n.clone(), made.get(&n).and_then(|m| m.lufs))).collect()
-                });
-                (key, made.unwrap_or_default(), omnix::sound::loudness(&clip).ok().flatten())
+                let listed = read_voices(&layout, &key, chosen.as_deref());
+                (key, listed)
             }),
-            |(key, made, own)| Message::Pane(PaneMsg::Voice(VoiceMsg::Listed(key, made, own))),
+            |(key, listed)| Message::Pane(PaneMsg::Voice(VoiceMsg::Listed(key, listed))),
         )
     }
 
@@ -79,13 +86,14 @@ impl App {
 
     pub(super) fn on_voice(&mut self, msg: VoiceMsg) -> Task<Message> {
         match msg {
-            VoiceMsg::Listed(key, made, own) => {
+            VoiceMsg::Listed(key, listed) => {
                 if self.pane.key.as_deref() == Some(key.as_str()) {
+                    let made = listed.made;
                     let chosen = self.chosen_voice().filter(|c| made.iter().any(|(n, _)| n == c));
                     let v = &mut self.pane.voices;
                     // Heard as the edit will have it, unless one was picked.
                     v.heard = v.heard.take().filter(|h| made.iter().any(|(n, _)| n == h)).or(chosen);
-                    (v.made, v.own) = (made, own);
+                    (v.made, v.own, v.speech) = (made, listed.own, listed.speech);
                     self.play_heard();
                 }
             }
@@ -95,7 +103,9 @@ impl App {
             }
             VoiceMsg::Use => {
                 if let Some(clip) = self.pane.key.clone() {
-                    self.change(Op::Clip(ClipOp::Voice { clip, audio: self.pane.voices.heard.clone() }));
+                    self.change(Op::Clip(ClipOp::Voice { clip: clip.clone(), audio: self.pane.voices.heard.clone() }));
+                    // Speech is looked for in the chosen voice first.
+                    return self.list_voices(&clip);
                 }
             }
             VoiceMsg::Recipe(name) => self.pane.voices.recipe = Some(name),
@@ -155,4 +165,16 @@ impl App {
         let make = tip(row![pick, make].spacing(4).align_y(Alignment::Center), text(format!("Made again from the original: {about}")), tooltip::Position::Top);
         column![row![text("Voice").size(13), tiles].spacing(8).align_y(Alignment::Center), row![use_it, make].spacing(8).align_y(Alignment::Center)].spacing(4).into()
     }
+}
+
+/// Clip `key`'s voices: each made one and its loudness, its own sound's
+/// loudness, and its speech, found in a cleaned voice
+/// (`voice::speech_source`; none without one). Blocking.
+fn read_voices(layout: &dailix_sheet::Layout, key: &str, chosen: Option<&str>) -> Listed {
+    let own = omnix::sound::loudness(&layout.clip(key)).ok().flatten();
+    let Some(dir) = voice::dir(layout, key) else { return Listed { own, ..Listed::default() } };
+    let made = voice::made(&dir);
+    let names = voice::variants(&dir);
+    let speech = voice::speech_source(&names, chosen).and_then(|n| omnix::sound::speech(&voice::track(&dir, n)).ok()).unwrap_or_default();
+    Listed { made: names.iter().map(|n| (n.clone(), made.get(n).and_then(|m| m.lufs))).collect(), own, speech }
 }

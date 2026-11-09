@@ -147,3 +147,15 @@ pub fn describe(layout: &Layout) -> Res<String> {
     out += &format!("recipes: {}\n", voice::RECIPES.map(|r| format!("{} ({})", r.name, r.note)).join("; "));
     Ok(out)
 }
+
+/// Where clip `key` holds speech (gap 83): the cleaned voice it's found in
+/// (`voice::speech_source`, the marking's choice first) and its stretches.
+pub fn speech(layout: &Layout, key: &str) -> Res<(String, Vec<(f64, f64)>)> {
+    let dir = voice::dir(layout, key).ok_or_else(|| format!("not a clip's key: {key}"))?;
+    let sheet = dailix_sheet::store::Store::new(layout.sheet()).read().and_then(|d| d.sheet().map_err(dailix_sheet::store::StoreError::Sheet)).map_err(|e| e.to_string())?;
+    let names = voice::variants(&dir);
+    let chosen = sheet.clips.get(key).and_then(|c| c.audio.as_deref());
+    let from = voice::speech_source(&names, chosen).ok_or_else(|| format!("{key} has no cleaned voice to look in: dailix voice make first"))?;
+    let spans = omnix::sound::speech(&voice::track(&dir, from)).map_err(|e| format!("{e:#}"))?;
+    Ok((from.to_owned(), spans))
+}

@@ -435,6 +435,7 @@ impl App {
                     marks: self.marks().iter().map(|m| (m.id.clone().unwrap_or_default(), m.t, if m.kind == MarkKind::Segment { m.end } else { None }, self.role_colour(m.role.as_deref()))).collect(),
                     picked: self.pane.picked.clone(),
                     mark_in: self.pane.mark_in,
+                    speech: self.pane.voices.speech.clone(),
                 };
                 top = top.push(canvas::Canvas::new(strip).width(Length::Fill).height(36));
                 top = top.push(
@@ -586,6 +587,8 @@ pub struct Strip {
     pub picked: Option<String>,
     /// An in point (I) waiting for its O.
     pub mark_in: Option<f64>,
+    /// Where it holds speech (gap 83): a thin line along the bottom.
+    pub speech: Vec<(f64, f64)>,
 }
 
 /// The band's height; how near an edge or a pole a press takes it.
@@ -707,6 +710,10 @@ impl canvas::Program<Message> for Strip {
         frame.fill(&Path::rounded_rectangle(Point::new(0.0, top), Size::new(w, bar), (bar / 2.0).into()), palette.background.strong.color);
         let x = px(self.at);
         frame.fill(&Path::rounded_rectangle(Point::new(0.0, top), Size::new(x.max(bar), bar), (bar / 2.0).into()), palette.primary.base.color);
+        // Where people talk, under the bar.
+        for &(a, b) in &self.speech {
+            frame.fill(&Path::rectangle(Point::new(px(a), h - 3.0), Size::new((px(b) - px(a)).max(2.0), 3.0)), palette.success.base.color);
+        }
         // Segments first, then the poles over them: a flag inside a segment
         // was hidden under its bar.
         let mut marks: Vec<_> = self.marks.iter().collect();

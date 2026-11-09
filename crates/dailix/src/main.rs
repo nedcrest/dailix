@@ -128,6 +128,9 @@ enum VoiceCmd {
     },
     /// The loudness of every voice not measured yet (made by footage-agent).
     Measure { project: PathBuf },
+    /// Where clip `<day>/<file>` holds speech (gap 83), found in its
+    /// cleaned voice: a line per stretch, seconds.
+    Speech { project: PathBuf, clip: String },
 }
 
 #[derive(Clone, Copy, clap::ValueEnum)]
@@ -165,7 +168,7 @@ fn main() -> ExitCode {
 
 fn voice_cmd(cmd: VoiceCmd) -> Result<(), Box<dyn std::error::Error>> {
     let project = match &cmd {
-        VoiceCmd::List { project } | VoiceCmd::Make { project, .. } | VoiceCmd::Measure { project } => dailix_sheet::Layout::new(project),
+        VoiceCmd::List { project } | VoiceCmd::Make { project, .. } | VoiceCmd::Measure { project } | VoiceCmd::Speech { project, .. } => dailix_sheet::Layout::new(project),
     };
     if !project.is_project() {
         return Err(format!("not a Dailix project: {}", project.root.display()).into());
@@ -184,6 +187,13 @@ fn voice_cmd(cmd: VoiceCmd) -> Result<(), Box<dyn std::error::Error>> {
                 n += voice::measure(&project, &clip.key)?;
             }
             println!("{n} measured");
+        }
+        VoiceCmd::Speech { clip, .. } => {
+            let (from, spans) = voice::speech(&project, &clip)?;
+            println!("in {from}:");
+            for (a, b) in spans {
+                println!("{} – {}", dailix_sheet::clock(a, 1), dailix_sheet::clock(b, 1));
+            }
         }
     }
     Ok(())
