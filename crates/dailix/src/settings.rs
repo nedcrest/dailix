@@ -37,7 +37,8 @@ impl PlaceKind {
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Settings {
-    /// Where new material lands first.
+    /// Scratch space: where a voice is made before it's moved into the
+    /// project (`voice::Scratch`); the system's temp folder without it.
     pub tmp: Option<PathBuf>,
     /// The projects.
     pub projects: Option<PathBuf>,
