@@ -131,6 +131,9 @@ enum VoiceCmd {
     /// Where clip `<day>/<file>` holds speech (gap 83), found in its
     /// cleaned voice: a line per stretch, seconds.
     Speech { project: PathBuf, clip: String },
+    /// Clip `<day>/<file>`'s edit to use its voice made by RECIPE, or its
+    /// own sound without one (the pane's «Use for the edit»).
+    Use { project: PathBuf, clip: String, recipe: Option<String> },
 }
 
 #[derive(Clone, Copy, clap::ValueEnum)]
@@ -168,7 +171,7 @@ fn main() -> ExitCode {
 
 fn voice_cmd(cmd: VoiceCmd) -> Result<(), Box<dyn std::error::Error>> {
     let project = match &cmd {
-        VoiceCmd::List { project } | VoiceCmd::Make { project, .. } | VoiceCmd::Measure { project } | VoiceCmd::Speech { project, .. } => dailix_sheet::Layout::new(project),
+        VoiceCmd::List { project } | VoiceCmd::Make { project, .. } | VoiceCmd::Measure { project } | VoiceCmd::Speech { project, .. } | VoiceCmd::Use { project, .. } => dailix_sheet::Layout::new(project),
     };
     if !project.is_project() {
         return Err(format!("not a Dailix project: {}", project.root.display()).into());
@@ -187,6 +190,10 @@ fn voice_cmd(cmd: VoiceCmd) -> Result<(), Box<dyn std::error::Error>> {
                 n += voice::measure(&project, &clip.key)?;
             }
             println!("{n} measured");
+        }
+        VoiceCmd::Use { clip, recipe, .. } => {
+            voice::use_voice(&project, &clip, recipe.as_deref())?;
+            println!("{clip}: {}", recipe.as_deref().unwrap_or("its own sound"));
         }
         VoiceCmd::Speech { clip, .. } => {
             let (from, spans) = voice::speech(&project, &clip)?;

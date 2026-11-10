@@ -175,3 +175,42 @@ pub fn speech(layout: &Layout, key: &str) -> Res<(String, Vec<(f64, f64)>)> {
     let spans = omnix::sound::speech(&voice::track(&dir, from)).map_err(|e| format!("{e:#}"))?;
     Ok((from.to_owned(), spans))
 }
+
+/// Clip `key`'s marking set to use voice `name` (made already), or its own
+/// sound with none: `dailix voice use` (Omnix audit C12), the pane's «Use
+/// for the edit» by command.
+pub fn use_voice(layout: &Layout, key: &str, name: Option<&str>) -> Res<()> {
+    if let Some(name) = name {
+        let made = voice::dir(layout, key).is_some_and(|d| voice::track(&d, name).is_file());
+        if !made {
+            return Err(format!("{key} has no voice {name}: make it first (dailix voice make)"));
+        }
+    }
+    let op = dailix_sheet::Op::Clip(dailix_sheet::ClipOp::Voice { clip: key.to_owned(), audio: name.map(str::to_owned) });
+    dailix_sheet::store::Store::new(layout.sheet()).apply(&[op]).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_voice_is_used_only_once_made() {
+        let root = std::env::temp_dir().join(format!("dailix-use-{}", std::process::id()));
+        let layout = Layout::new(&root);
+        std::fs::create_dir_all(layout.data()).unwrap();
+        std::fs::write(layout.sheet(), "{}").unwrap();
+        let key = "2030-05-01/A.MP4";
+        assert!(use_voice(&layout, key, Some("dnn6")).is_err(), "not made");
+        let dir = voice::dir(&layout, key).unwrap();
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(voice::track(&dir, "dnn6"), b"").unwrap();
+        use_voice(&layout, key, Some("dnn6")).unwrap();
+        let read = || dailix_sheet::store::Store::new(layout.sheet()).read().unwrap().sheet().unwrap().clips.get(key).and_then(|c| c.audio.clone());
+        assert_eq!(read(), Some("dnn6".to_owned()));
+        use_voice(&layout, key, None).unwrap();
+        assert_eq!(read(), None, "back to its own sound");
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+}
