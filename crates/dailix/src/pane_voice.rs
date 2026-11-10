@@ -18,8 +18,13 @@ pub struct Voices {
     pub made: Vec<(String, Option<f64>)>,
     /// The clip's own sound's loudness, once measured.
     pub own: Option<f64>,
-    /// The one heard; none: the clip's own.
+    /// The one heard; none: the clip's own. `picked`: by a click, so it
+    /// stays when the voices are read again.
     pub heard: Option<String>,
+    pub picked: bool,
+    /// What the player was last told to play, and at what gain: told again
+    /// only when it changes, so a refresh doesn't restart the sound.
+    playing: Option<(Option<std::path::PathBuf>, f64)>,
     /// The recipe picked to make.
     pub recipe: Option<String>,
     /// Where it holds speech, seconds (gap 83), found in a cleaned voice.
@@ -79,8 +84,11 @@ impl App {
             None => (None, v.own),
         };
         let gain = voice::compare_gain(lufs);
-        if let Some(viewer) = &mut self.pane.viewer {
-            viewer.hear(file.as_deref(), gain);
+        let Some(viewer) = &mut self.pane.viewer else { return };
+        let now = Some((file, gain));
+        if self.pane.voices.playing != now {
+            viewer.hear(now.as_ref().and_then(|(f, _)| f.as_deref()), gain);
+            self.pane.voices.playing = now;
         }
     }
 
@@ -91,14 +99,13 @@ impl App {
                     let made = listed.made;
                     let chosen = self.chosen_voice().filter(|c| made.iter().any(|(n, _)| n == c));
                     let v = &mut self.pane.voices;
-                    // Heard as the edit will have it, unless one was picked.
-                    v.heard = v.heard.take().filter(|h| made.iter().any(|(n, _)| n == h)).or(chosen);
+                    (v.heard, v.picked) = heard_after(v.heard.take(), v.picked, &made, chosen);
                     (v.made, v.own, v.speech) = (made, listed.own, listed.speech);
                     self.play_heard();
                 }
             }
             VoiceMsg::Hear(heard) => {
-                self.pane.voices.heard = heard;
+                (self.pane.voices.heard, self.pane.voices.picked) = (heard, true);
                 self.play_heard();
             }
             VoiceMsg::Use => {
@@ -115,6 +122,10 @@ impl App {
                 if let Err(e) = done {
                     self.error = Some(format!("{key}: voice {recipe}: {e}"));
                 } else if self.pane.key.as_deref() == Some(key.as_str()) {
+                    // Made again, the heard one is a new file at the same place.
+                    if self.pane.voices.heard.as_deref() == Some(recipe.as_str()) {
+                        self.pane.voices.playing = None;
+                    }
                     return self.list_voices(&key);
                 }
             }
@@ -183,6 +194,14 @@ fn read_voices(layout: &dailix_sheet::Layout, key: &str, chosen: Option<&str>) -
     Listed { made: names.iter().map(|n| (n.clone(), made.get(n).and_then(|m| m.lufs))).collect(), own, speech }
 }
 
+/// The voice heard once a clip's voices are read again, and whether it's
+/// still the one picked: a picked one stays (the Original too) while it's
+/// there; else the one the edit uses (audit A11).
+fn heard_after(heard: Option<String>, picked: bool, made: &[(String, Option<f64>)], chosen: Option<String>) -> (Option<String>, bool) {
+    let there = |h: &Option<String>| h.as_ref().is_none_or(|h| made.iter().any(|(n, _)| n == h));
+    if picked && there(&heard) { (heard, true) } else { (chosen, false) }
+}
+
 /// The recipes being made for clip `key`, by name: a make goes on when
 /// the pane moves to another clip, and shows again on coming back.
 fn making_for<'a>(makes: &'a std::collections::HashSet<(String, String)>, key: &str) -> Vec<&'a str> {
@@ -194,6 +213,18 @@ fn making_for<'a>(makes: &'a std::collections::HashSet<(String, String)>, key: &
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_picked_voice_stays_when_the_voices_are_read_again() {
+        let made = [("dnn6".to_owned(), None), ("eq".to_owned(), None)];
+        let s = |n: &str| Some(n.to_owned());
+        // The Original picked to compare stays; unpicked, the edit's is heard.
+        assert_eq!(heard_after(None, true, &made, s("dnn6")), (None, true));
+        assert_eq!(heard_after(None, false, &made, s("dnn6")), (s("dnn6"), false));
+        // A picked one that's gone gives way to the edit's.
+        assert_eq!(heard_after(s("dnn24"), true, &made, s("eq")), (s("eq"), false));
+        assert_eq!(heard_after(s("eq"), true, &made, s("dnn6")), (s("eq"), true));
+    }
 
     #[test]
     fn a_make_belongs_to_its_clip() {
