@@ -41,7 +41,10 @@ struct Scratch(PathBuf);
 impl Scratch {
     fn new() -> Res<Scratch> {
         let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_nanos());
-        let dir = std::env::temp_dir().join(format!("dailix-voice-{}-{nanos}", std::process::id()));
+        // In Dailix's TMP place when one is set: a long clip's sound is
+        // hundreds of MB, too much for a /tmp held in memory (audit A15).
+        let base = crate::settings::Settings::load().tmp.filter(|d| d.is_dir()).unwrap_or_else(std::env::temp_dir);
+        let dir = base.join(format!("dailix-voice-{}-{nanos}", std::process::id()));
         // `deep-filter` writes under the input's name into its `-o` folder:
         // given the input's own folder, it overwrites the input and says
         // nothing (footage-agent lost test files so). In and out apart.
@@ -85,33 +88,46 @@ pub fn make(layout: &Layout, key: &str, source: &Path, recipe: &Recipe) -> Res<P
     if !done.is_file() {
         return Err(format!("{}: nothing came out", recipe.name));
     }
-    // Written whole or not at all: a half file would pass for a voice.
+    // Written whole or not at all: a half file would pass for a voice, and
+    // a failed one leaves nothing behind (audit A15).
     let track = voice::track(&dir, recipe.name);
     let part = dir.join(format!(".{}.part", recipe.name));
     let mut flac = omnix::sound::tool("ffmpeg");
     flac.args(["-nostdin", "-y", "-loglevel", "error", "-i"]).arg(&done).args(["-c:a", "flac", "-compression_level", "5", "-f", "flac"]).arg(&part);
-    run(flac, "writing the FLAC")?;
-    std::fs::rename(&part, &track).map_err(|e| format!("{}: {e}", track.display()))?;
-    let mut made = Made::stamp(recipe, source).map_err(|e| format!("{}: {e}", source.display()))?;
-    made.lufs = omnix::sound::loudness(&track).map_err(|e| format!("measuring: {e:#}"))?;
-    let mut all = voice::made(&dir);
-    all.insert(recipe.name.to_owned(), made);
-    voice::write_made(&dir, &all).map_err(|e| format!("{}: {e}", dir.display()))?;
+    if let Err(e) = run(flac, "writing the FLAC").and_then(|_| std::fs::rename(&part, &track).map_err(|e| format!("{}: {e}", track.display()))) {
+        let _ = std::fs::remove_file(&part);
+        return Err(e);
+    }
+    // Recorded even if measuring fails (its loudness then unknown, for
+    // `measure` to fill): a voice without an entry was listed but never
+    // measured (audit A10).
+    let mut entry = Made::stamp(recipe, source).map_err(|e| format!("{}: {e}", source.display()))?;
+    let measured = omnix::sound::loudness(&track).map_err(|e| format!("measuring: {e:#}"));
+    entry.lufs = measured.clone().ok().flatten();
+    voice::record(&dir, recipe.name, entry).map_err(|e| format!("{}: {e}", dir.display()))?;
+    measured?;
     Ok(track)
 }
 
-/// The loudness of clip `key`'s variants not measured yet (made before
-/// it was, by footage-agent's sheet): how many were.
+/// The loudness of clip `key`'s variants not measured yet (made by
+/// footage-agent's sheet, or measured in vain): those without an entry
+/// too, given one if their recipe is known (audit A10). How many were.
 pub fn measure(layout: &Layout, key: &str) -> Res<usize> {
     let Some(dir) = voice::dir(layout, key) else { return Ok(0) };
-    let mut all = voice::made(&dir);
+    let had = voice::made(&dir);
     let mut measured = 0;
-    for (name, made) in all.iter_mut().filter(|(n, m)| m.lufs.is_none() && voice::track(&dir, n).is_file()) {
-        made.lufs = omnix::sound::loudness(&voice::track(&dir, name)).map_err(|e| format!("measuring {name}: {e:#}"))?;
+    for name in voice::variants(&dir) {
+        let entry = match had.get(&name) {
+            Some(m) if m.lufs.is_some() => continue,
+            Some(m) => m.clone(),
+            None => match voice::recipe(&name) {
+                Some(r) => Made::stamp(r, &layout.clip(key)).map_err(|e| format!("{key}: {e}"))?,
+                None => continue,
+            },
+        };
+        let lufs = omnix::sound::loudness(&voice::track(&dir, &name)).map_err(|e| format!("measuring {name}: {e:#}"))?;
+        voice::record(&dir, &name, Made { lufs, ..entry }).map_err(|e| format!("{}: {e}", dir.display()))?;
         measured += 1;
-    }
-    if measured > 0 {
-        voice::write_made(&dir, &all).map_err(|e| format!("{}: {e}", dir.display()))?;
     }
     Ok(measured)
 }
