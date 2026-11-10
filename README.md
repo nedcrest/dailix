@@ -60,7 +60,7 @@ a program keeps lives in `dailix/` beside them.
                              and export/ (its finished files)
   06_external                outside video: memes, inserts, transitions
   07_sfx                     sound effects
-  08_graphics                pictures over the video
+  08_pictures                pictures and photos over the video (an old 08_graphics still read)
   09_luts                    colour LUTs (.cube)
   dailix/
     project.json             what the project is, where it came from
