@@ -325,9 +325,16 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
             }
         }
         SheetCmd::Check { notes } => {
-            let doc = Doc::parse(&std::fs::read_to_string(notes)?)?;
+            let doc = Doc::parse(&std::fs::read_to_string(&notes)?)?;
             for p in doc.check() {
                 println!("{p}");
+            }
+            // A project's own sheet: its voices are looked for too.
+            let root = notes.parent().and_then(std::path::Path::parent).map(dailix_sheet::Layout::new);
+            if let (Some(layout), Ok(sheet)) = (root.filter(|l| l.is_project() && l.sheet() == notes), doc.sheet()) {
+                for p in dailix_sheet::voice::gone(&layout, &sheet) {
+                    println!("{p}");
+                }
             }
         }
         SheetCmd::Describe { notes, day } => {
