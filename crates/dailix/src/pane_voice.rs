@@ -20,9 +20,8 @@ pub struct Voices {
     pub own: Option<f64>,
     /// The one heard; none: the clip's own.
     pub heard: Option<String>,
-    /// The recipe picked to make, and the one being made.
+    /// The recipe picked to make.
     pub recipe: Option<String>,
-    pub making: Option<String>,
     /// Where it holds speech, seconds (gap 83), found in a cleaned voice.
     pub speech: Vec<(f64, f64)>,
 }
@@ -44,7 +43,8 @@ pub enum VoiceMsg {
     Use,
     Recipe(String),
     Make,
-    Made(String, Result<(), String>),
+    /// Clip `.0`'s voice by recipe `.1` made, or why not.
+    Made(String, String, Result<(), String>),
 }
 
 impl App {
@@ -110,10 +110,10 @@ impl App {
             }
             VoiceMsg::Recipe(name) => self.pane.voices.recipe = Some(name),
             VoiceMsg::Make => return self.make_voice(),
-            VoiceMsg::Made(key, done) => {
-                self.pane.voices.making = None;
+            VoiceMsg::Made(key, recipe, done) => {
+                self.voice_makes.remove(&(key.clone(), recipe.clone()));
                 if let Err(e) = done {
-                    self.error = Some(e);
+                    self.error = Some(format!("{key}: voice {recipe}: {e}"));
                 } else if self.pane.key.as_deref() == Some(key.as_str()) {
                     return self.list_voices(&key);
                 }
@@ -132,13 +132,14 @@ impl App {
 
     fn make_voice(&mut self) -> Task<Message> {
         let (Some(p), Some(key), Some(recipe)) = (&self.project, self.pane.key.clone(), self.recipe_to_make()) else { return Task::none() };
-        if self.pane.voices.making.is_some() {
+        let layout = p.footage.layout.clone();
+        if !self.voice_makes.insert((key.clone(), recipe.name.to_owned())) {
             return Task::none();
         }
-        let layout = p.footage.layout.clone();
         let source = layout.clip(&key);
-        self.pane.voices.making = Some(recipe.name.to_owned());
-        Task::perform(super::blocking(move || (key.clone(), crate::voice::make(&layout, &key, &source, recipe).map(|_| ()))), |(key, done)| Message::Pane(PaneMsg::Voice(VoiceMsg::Made(key, done))))
+        Task::perform(super::blocking(move || (key.clone(), crate::voice::make(&layout, &key, &source, recipe).map(|_| ()))), |(key, done)| {
+            Message::Pane(PaneMsg::Voice(VoiceMsg::Made(key, recipe.name.to_owned(), done)))
+        })
     }
 
     /// The row: the clip's own sound and each voice made (heard lit, the
@@ -160,7 +161,10 @@ impl App {
         let names: Vec<String> = voice::RECIPES.iter().map(|r| r.name.to_owned()).collect();
         let next = self.recipe_to_make().map(|r| r.name.to_owned());
         let pick = pick_list(names, next.clone(), move |n| to(VoiceMsg::Recipe(n))).text_size(12).padding([2, 6]);
-        let make = button(text(v.making.as_ref().map_or("Make".to_owned(), |m| format!("Making {m}…"))).size(12)).padding([2, 8]).on_press_maybe((v.making.is_none() && next.is_some()).then(|| to(VoiceMsg::Make)));
+        let making = self.pane.key.as_deref().map_or_else(Vec::new, |k| making_for(&self.voice_makes, k));
+        let busy = next.as_ref().is_some_and(|n| making.contains(&n.as_str()));
+        let label = if making.is_empty() { "Make".to_owned() } else { format!("Making {}…", making.join(", ")) };
+        let make = button(text(label).size(12)).padding([2, 8]).on_press_maybe((!busy && next.is_some()).then(|| to(VoiceMsg::Make)));
         let about = next.as_deref().and_then(voice::recipe).map_or("", |r| r.note);
         let make = tip(row![pick, make].spacing(4).align_y(Alignment::Center), text(format!("Made again from the original: {about}")), tooltip::Position::Top);
         column![row![text("Voice").size(13), tiles].spacing(8).align_y(Alignment::Center), row![use_it, make].spacing(8).align_y(Alignment::Center)].spacing(4).into()
@@ -177,4 +181,24 @@ fn read_voices(layout: &dailix_sheet::Layout, key: &str, chosen: Option<&str>) -
     let names = voice::variants(&dir);
     let speech = voice::speech_source(&names, chosen).and_then(|n| omnix::sound::speech(&voice::track(&dir, n)).ok()).unwrap_or_default();
     Listed { made: names.iter().map(|n| (n.clone(), made.get(n).and_then(|m| m.lufs))).collect(), own, speech }
+}
+
+/// The recipes being made for clip `key`, by name: a make goes on when
+/// the pane moves to another clip, and shows again on coming back.
+fn making_for<'a>(makes: &'a std::collections::HashSet<(String, String)>, key: &str) -> Vec<&'a str> {
+    let mut names: Vec<&str> = makes.iter().filter(|(c, _)| c == key).map(|(_, r)| r.as_str()).collect();
+    names.sort();
+    names
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_make_belongs_to_its_clip() {
+        let pair = |c: &str, r: &str| (c.to_owned(), r.to_owned());
+        let makes = std::collections::HashSet::from([pair("d/a.mp4", "eq"), pair("d/a.mp4", "dnn12"), pair("d/b.mp4", "dnn6")]);
+        assert_eq!((making_for(&makes, "d/a.mp4"), making_for(&makes, "d/b.mp4"), making_for(&makes, "d/c.mp4")), (vec!["dnn12", "eq"], vec!["dnn6"], vec![]));
+    }
 }

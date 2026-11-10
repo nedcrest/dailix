@@ -66,6 +66,9 @@ struct App {
     error: Option<String>,
     /// Posters being made, so each is made once.
     making: HashSet<PathBuf>,
+    /// Voices being made: (clip, recipe). Kept here, not in the pane: the
+    /// pane is new for every clip, and a make outlives it (audit A8).
+    voice_makes: HashSet<(String, String)>,
     /// A day's story as being typed, till it's saved.
     drafts: HashMap<String, text_editor::Content>,
     dirty: HashSet<String>,
@@ -261,7 +264,7 @@ impl App {
             Start::NewTrip => (None, true),
         };
         let settings = Settings::load();
-        let mut app = App { project: None, error: None, making: HashSet::new(), drafts: HashMap::new(), dirty: HashSet::new(), selected: None, pane: pane::Pane::default(), height: 920.0, scale: settings.scale.unwrap_or(1.0), width: 1500.0, pane_share: settings.pane_share.unwrap_or(pane::SHARE), grip: None, help: false, settings_open: None, at_home: true, trips: Vec::new(), places: Vec::new(), naming: None, trip_open: None, about: Default::default(), new_trip: None, settings };
+        let mut app = App { project: None, error: None, making: HashSet::new(), voice_makes: HashSet::new(), drafts: HashMap::new(), dirty: HashSet::new(), selected: None, pane: pane::Pane::default(), height: 920.0, scale: settings.scale.unwrap_or(1.0), width: 1500.0, pane_share: settings.pane_share.unwrap_or(pane::SHARE), grip: None, help: false, settings_open: None, at_home: true, trips: Vec::new(), places: Vec::new(), naming: None, trip_open: None, about: Default::default(), new_trip: None, settings };
         // A project named opens; else where the window was left (home on
         // the first run, or when it was left there).
         app.refresh_home();
