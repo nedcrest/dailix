@@ -67,3 +67,22 @@ fn trips_are_listed_as_the_home_view_sums_them_up() {
 fn dailix_run(args: &[&str]) -> (bool, String, String) {
     dailix(args, None)
 }
+
+#[test]
+fn a_trips_description_and_tags_are_changed_by_command() {
+    let root = std::env::temp_dir().join(format!("dailix-cli-about-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    let layout = dailix_sheet::Layout::new(&root);
+    layout.create().unwrap();
+    std::fs::write(layout.project(), r#"{"title": "Sea", "tags": ["old"]}"#).unwrap();
+    let r = root.to_str().unwrap();
+    let (ok, said, _) = dailix(&["about", r, "--description", "A week by the sea", "--tags", "sea, boat,sea"], None);
+    assert!(ok && said.contains("tags: sea, boat"), "{said}");
+    // One given, the other kept; the title untouched.
+    let (_, said, _) = dailix(&["about", r, "--tags", ""], None);
+    let project = std::fs::read_to_string(layout.project()).unwrap();
+    std::fs::remove_dir_all(&root).unwrap();
+    assert_eq!(said, "description: A week by the sea\ntags: \n");
+    let project: serde_json::Value = serde_json::from_str(&project).unwrap();
+    assert_eq!((project["title"].as_str(), project.get("tags")), (Some("Sea"), None));
+}

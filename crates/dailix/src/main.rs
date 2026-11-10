@@ -79,6 +79,16 @@ enum Command {
     /// A project's name as people say it: shows it, or sets it (an empty
     /// one gives back the folder's name). The folder isn't renamed.
     Title { project: PathBuf, title: Option<String> },
+    /// A project's description and tags (as the home view edits them):
+    /// shows them, or sets those given; an empty one is taken out.
+    About {
+        project: PathBuf,
+        #[arg(long)]
+        description: Option<String>,
+        /// Comma-separated.
+        #[arg(long)]
+        tags: Option<String>,
+    },
     /// The edits lying loose in a project's old 04_project, each moved
     /// into a video of its own (videos/<name>/edit.json); copies and empty
     /// ones to the trash, other files left. Says what it would do; does it
@@ -269,6 +279,18 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
                 dailix_sheet::project::set_title(&project, &t)?;
             }
             println!("{}", dailix_sheet::project::title(&project));
+            return Ok(());
+        }
+        Command::About { project, description, tags } => {
+            if !dailix_sheet::Layout::new(&project).is_project() {
+                return Err(format!("not a Dailix project: {}", project.display()).into());
+            }
+            let mut about = dailix_sheet::project::about(&project);
+            if description.is_some() || tags.is_some() {
+                about = dailix_sheet::project::About { description: description.unwrap_or(about.description), tags: tags.map_or(about.tags, |t| dailix_sheet::project::parse_tags(&t)) };
+                dailix_sheet::project::set_about(&project, &about)?;
+            }
+            println!("description: {}\ntags: {}", about.description, about.tags.join(", "));
             return Ok(());
         }
         Command::TidyEdits { project, apply } => {
