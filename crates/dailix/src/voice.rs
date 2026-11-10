@@ -166,14 +166,26 @@ pub fn describe(layout: &Layout) -> Res<String> {
 
 /// Where clip `key` holds speech (gap 83): the cleaned voice it's found in
 /// (`voice::speech_source`, the marking's choice first) and its stretches.
-pub fn speech(layout: &Layout, key: &str) -> Res<(String, Vec<(f64, f64)>)> {
-    let dir = voice::dir(layout, key).ok_or_else(|| format!("not a clip's key: {key}"))?;
+pub fn speech(layout: &Layout, key: &str) -> Res<Speech> {
     let sheet = dailix_sheet::store::Store::new(layout.sheet()).read().and_then(|d| d.sheet().map_err(dailix_sheet::store::StoreError::Sheet)).map_err(|e| e.to_string())?;
-    let names = voice::variants(&dir);
     let chosen = sheet.clips.get(key).and_then(|c| c.audio.as_deref());
-    let from = voice::speech_source(&names, chosen).ok_or_else(|| format!("{key} has no cleaned voice to look in: dailix voice make first"))?;
-    let spans = omnix::sound::speech(&voice::track(&dir, from)).map_err(|e| format!("{e:#}"))?;
-    Ok((from.to_owned(), spans))
+    speech_in(layout, key, chosen)?.ok_or_else(|| format!("{key} has no cleaned voice to look in: dailix voice make first"))
+}
+
+/// The voice speech was found in, and its stretches, seconds.
+pub type Speech = (String, Vec<(f64, f64)>);
+
+/// Where clip `key` holds speech, looked for in the cleaned voice
+/// `voice::speech_source` picks (`chosen`: the one the edit uses): which,
+/// and the stretches; none without a cleaned voice. The pane and `dailix
+/// voice speech` both (Omnix audit B7: the pane had a copy that let a
+/// failure pass for no speech).
+pub fn speech_in(layout: &Layout, key: &str, chosen: Option<&str>) -> Res<Option<Speech>> {
+    let dir = voice::dir(layout, key).ok_or_else(|| format!("not a clip's key: {key}"))?;
+    let names = voice::variants(&dir);
+    let Some(from) = voice::speech_source(&names, chosen) else { return Ok(None) };
+    let spans = omnix::sound::speech(&voice::track(&dir, from)).map_err(|e| format!("finding speech in its {from} voice: {e:#}"))?;
+    Ok(Some((from.to_owned(), spans)))
 }
 
 /// Clip `key`'s marking set to use voice `name` (made already), or its own
@@ -194,6 +206,20 @@ pub fn use_voice(layout: &Layout, key: &str, name: Option<&str>) -> Res<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn speech_found_in_a_broken_voice_is_a_failure_not_silence() {
+        let root = std::env::temp_dir().join(format!("dailix-speech-{}", std::process::id()));
+        let layout = Layout::new(&root);
+        let key = "2030-05-01/A.MP4";
+        assert_eq!(speech_in(&layout, key, None), Ok(None), "no cleaned voice: nothing to look in");
+        let dir = voice::dir(&layout, key).unwrap();
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(voice::track(&dir, "dnn6"), b"not sound").unwrap();
+        let found = speech_in(&layout, key, None);
+        std::fs::remove_dir_all(&root).unwrap();
+        assert!(found.is_err_and(|e| e.contains("dnn6")));
+    }
 
     #[test]
     fn a_voice_is_used_only_once_made() {

@@ -37,6 +37,8 @@ pub struct Listed {
     made: Vec<(String, Option<f64>)>,
     own: Option<f64>,
     speech: Vec<(f64, f64)>,
+    /// Why its speech couldn't be found, if it couldn't.
+    trouble: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -102,6 +104,9 @@ impl App {
                     (v.heard, v.picked) = heard_after(v.heard.take(), v.picked, &made, chosen);
                     (v.made, v.own, v.speech) = (made, listed.own, listed.speech);
                     self.play_heard();
+                    if let Some(e) = listed.trouble {
+                        self.error = Some(format!("{key}: {e}"));
+                    }
                 }
             }
             VoiceMsg::Hear(heard) => {
@@ -137,8 +142,7 @@ impl App {
     /// not made yet.
     fn recipe_to_make(&self) -> Option<&'static voice::Recipe> {
         let v = &self.pane.voices;
-        let picked = v.recipe.as_deref().and_then(voice::recipe);
-        picked.or_else(|| voice::RECIPES.iter().find(|r| !v.made.iter().any(|(n, _)| n == r.name)))
+        voice::to_make(v.recipe.as_deref(), v.made.iter().map(|(n, _)| n.as_str()))
     }
 
     fn make_voice(&mut self) -> Task<Message> {
@@ -190,8 +194,11 @@ fn read_voices(layout: &dailix_sheet::Layout, key: &str, chosen: Option<&str>) -
     let Some(dir) = voice::dir(layout, key) else { return Listed { own, ..Listed::default() } };
     let made = voice::made(&dir);
     let names = voice::variants(&dir);
-    let speech = voice::speech_source(&names, chosen).and_then(|n| omnix::sound::speech(&voice::track(&dir, n)).ok()).unwrap_or_default();
-    Listed { made: names.iter().map(|n| (n.clone(), made.get(n).and_then(|m| m.lufs))).collect(), own, speech }
+    let (speech, trouble) = match crate::voice::speech_in(layout, key, chosen) {
+        Ok(found) => (found.map(|(_, s)| s).unwrap_or_default(), None),
+        Err(e) => (Vec::new(), Some(e)),
+    };
+    Listed { made: names.iter().map(|n| (n.clone(), made.get(n).and_then(|m| m.lufs))).collect(), own, speech, trouble }
 }
 
 /// The voice heard once a clip's voices are read again, and whether it's
