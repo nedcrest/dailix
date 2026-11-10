@@ -41,8 +41,11 @@ impl Plan {
 
 type Error = Box<dyn std::error::Error>;
 
-/// The numbered folders whose material is carried over as it is.
-const CARRIED: [&str; 5] = ["02_audio", "06_external", "07_sfx", "08_graphics", "09_luts"];
+/// The numbered folders whose material is carried over as it is; the
+/// pictures' too, under their name now (`PICTURES`), from the old name or
+/// the new (audit A7: the old was carried as it was, the new not at all).
+const CARRIED: [&str; 4] = ["02_audio", "06_external", "07_sfx", "09_luts"];
+const PICTURES_FROM: [&str; 2] = [dailix_sheet::layout::OLD_PICTURES, dailix_sheet::layout::PICTURES];
 
 /// Every file under `from`, to the same place under `to` (hidden files and
 /// those `skip` refuses left out).
@@ -93,6 +96,9 @@ pub fn plan(old: &Path, new: &Path) -> Result<Plan, Error> {
     copies.extend(own.into_iter().filter(|c| !taken.contains(&c.to)));
     for dir in CARRIED {
         tree(&old.join(dir), &new.join(dir), &|_| false, &mut copies)?;
+    }
+    for dir in PICTURES_FROM {
+        tree(&old.join(dir), &new.join(dailix_sheet::layout::PICTURES), &|_| false, &mut copies)?;
     }
     tree(&old.join("analysis"), &layout.analysis(), &|_| false, &mut copies)?;
     tree(&old.join("voice"), &layout.voice(), &|_| false, &mut copies)?;
@@ -178,6 +184,8 @@ mod tests {
         write(&old.join("report/preview/2030-05-01/A.mp4"), b"preview");
         write(&old.join("01_footage/2030-04-30/phone.mp4"), b"pp");
         write(&old.join("02_audio/music/song.wav"), b"song");
+        write(&old.join("08_graphics/logo.png"), b"png");
+        write(&old.join("08_pictures/photo.jpg"), b"jpg");
         write(&old.join("05_export/film.mp4"), b"film");
         write(&old.join("analysis/2030-05-01/A.footage.json"), b"{}");
         write(&old.join("voice/2030-05-01/A/dnn6.flac"), b"v");
@@ -185,7 +193,7 @@ mod tests {
 
         let p = plan(&old, &new).unwrap();
         let to: Vec<String> = p.copies.iter().map(|c| c.to.strip_prefix(&new).unwrap().display().to_string()).collect();
-        assert_eq!(to, ["01_footage/2030-05-01/A.MP4", "01_footage/2030-04-30/phone.mp4", "02_audio/music/song.wav", "dailix/analysis/2030-05-01/A.footage.json", "dailix/voice/2030-05-01/A/dnn6.flac"]);
+        assert_eq!(to, ["01_footage/2030-05-01/A.MP4", "01_footage/2030-04-30/phone.mp4", "02_audio/music/song.wav", "08_pictures/logo.png", "08_pictures/photo.jpg", "dailix/analysis/2030-05-01/A.footage.json", "dailix/voice/2030-05-01/A/dnn6.flac"]);
         let mut seen = Vec::new();
         run(&p, |done, total| seen.push((done, total))).unwrap();
         assert_eq!(seen.last(), Some(&(p.bytes(), p.bytes())));
