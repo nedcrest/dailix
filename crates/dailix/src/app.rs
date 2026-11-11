@@ -102,6 +102,9 @@ struct App {
     places: Vec<crate::library::Place>,
     /// A project being named on the home view: its folder, the name typed.
     naming: Option<(PathBuf, String)>,
+    /// «→ Omnix» or «Empty day» asked on a day that has such videos
+    /// already: which to open, or a new one (Omnix gap 104).
+    choosing: Option<home::Choosing>,
     /// The trip whose page the home view shows (none: the trips' cards),
     /// and its description and tags as typed there.
     trip_open: Option<PathBuf>,
@@ -155,6 +158,9 @@ enum Message {
     AboutTags(String),
     AboutSave,
     OpenEdit(PathBuf),
+    /// The videos offered: a new one made after all, or none.
+    ChooseNew,
+    ChooseCancel,
     /// The new trip's form: opened, typed in, made, cancelled.
     NewTrip,
     NewTripTitle(String),
@@ -264,7 +270,7 @@ impl App {
             Start::NewTrip => (None, true),
         };
         let settings = Settings::load();
-        let mut app = App { project: None, error: None, making: HashSet::new(), voice_makes: HashSet::new(), drafts: HashMap::new(), dirty: HashSet::new(), selected: None, pane: pane::Pane::default(), height: 920.0, scale: settings.scale.unwrap_or(1.0), width: 1500.0, pane_share: settings.pane_share.unwrap_or(pane::SHARE), grip: None, help: false, settings_open: None, at_home: true, trips: Vec::new(), places: Vec::new(), naming: None, trip_open: None, about: Default::default(), new_trip: None, settings };
+        let mut app = App { project: None, error: None, making: HashSet::new(), voice_makes: HashSet::new(), drafts: HashMap::new(), dirty: HashSet::new(), selected: None, pane: pane::Pane::default(), height: 920.0, scale: settings.scale.unwrap_or(1.0), width: 1500.0, pane_share: settings.pane_share.unwrap_or(pane::SHARE), grip: None, help: false, settings_open: None, at_home: true, trips: Vec::new(), places: Vec::new(), naming: None, choosing: None, trip_open: None, about: Default::default(), new_trip: None, settings };
         // A project named opens; else where the window was left (home on
         // the first run, or when it was left there).
         app.refresh_home();
@@ -418,18 +424,10 @@ impl App {
         Task::batch([open, place])
     }
 
-    fn update(&mut self, message: Message) -> Task<Message> {
+    /// The window's layout: the pane's grip dragged and let go, a picked
+    /// tile scrolled into view, the scale stepped.
+    fn on_layout(&mut self, message: Message) -> Task<Message> {
         match message {
-            Message::Select(key) => return self.select(key),
-            Message::Pane(msg) => return self.on_pane(msg),
-            Message::Resized(s) => {
-                self.height = s.height;
-                self.width = s.width;
-            }
-            Message::Help => self.help = !self.help,
-            m @ (Message::ToOmnix(..) | Message::EmptyDay(..) | Message::Name(_) | Message::NameEdit(_) | Message::NameSave | Message::Home | Message::OpenDay(..) | Message::OpenTrip(_) | Message::AboutDescription(_) | Message::AboutTags(_) | Message::AboutSave | Message::OpenEdit(_)) => return self.on_home(m),
-            m @ (Message::Settings | Message::SettingsGroup(_) | Message::ChoosePlace(_) | Message::PlaceChosen(..)) => return self.on_settings(m),
-            m @ (Message::NewTrip | Message::NewTripTitle(_) | Message::NewTripFolder(_) | Message::NewTripDescription(_) | Message::NewTripTags(_) | Message::NewTripMake | Message::NewTripCancel) => return self.on_new_trip(m),
             Message::Grip => self.grip = Some(None),
             Message::Pointer(p) => {
                 // Moved left, the pane widens; up to half the window.
@@ -466,6 +464,24 @@ impl App {
                 self.settings.scale = Some(self.scale);
                 let _ = self.settings.save();
             }
+            _ => {}
+        }
+        Task::none()
+    }
+
+    fn update(&mut self, message: Message) -> Task<Message> {
+        match message {
+            Message::Select(key) => return self.select(key),
+            Message::Pane(msg) => return self.on_pane(msg),
+            Message::Resized(s) => {
+                self.height = s.height;
+                self.width = s.width;
+            }
+            Message::Help => self.help = !self.help,
+            m @ (Message::ToOmnix(..) | Message::EmptyDay(..) | Message::Name(_) | Message::NameEdit(_) | Message::NameSave | Message::Home | Message::OpenDay(..) | Message::OpenTrip(_) | Message::AboutDescription(_) | Message::AboutTags(_) | Message::AboutSave | Message::OpenEdit(_) | Message::ChooseNew | Message::ChooseCancel) => return self.on_home(m),
+            m @ (Message::Settings | Message::SettingsGroup(_) | Message::ChoosePlace(_) | Message::PlaceChosen(..)) => return self.on_settings(m),
+            m @ (Message::NewTrip | Message::NewTripTitle(_) | Message::NewTripFolder(_) | Message::NewTripDescription(_) | Message::NewTripTags(_) | Message::NewTripMake | Message::NewTripCancel) => return self.on_new_trip(m),
+            m @ (Message::Grip | Message::Pointer(_) | Message::Release | Message::Placed(_) | Message::Scale(_)) => return self.on_layout(m),
             Message::Key(key, physical, mods, taken) => return self.on_key(key, physical, mods, taken),
             Message::Open => {
                 let start = self.settings.projects.clone();
@@ -646,7 +662,7 @@ impl App {
     /// always there (empty when hidden), so the window under it keeps its
     /// state (a scroll, a field's focus) when the list comes up.
     fn view(&self) -> Element<'_, Message> {
-        iced::widget::stack![self.page(), self.settings_layer(), self.new_trip_layer(), self.help_layer()].into()
+        iced::widget::stack![self.page(), self.settings_layer(), self.new_trip_layer(), self.choose_layer(), self.help_layer()].into()
     }
 
     fn help_layer(&self) -> Element<'_, Message> {

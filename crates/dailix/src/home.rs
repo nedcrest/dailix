@@ -6,7 +6,8 @@
 //! ✎ when the day's story is written, where its files are). Folders stay
 //! out of sight: a day's card opens it in the contact sheet.
 
-use super::{App, Message, pane};
+use super::{App, Message, modal, pane};
+use std::path::{Path, PathBuf};
 use crate::library::{self, Place, Trip};
 use iced::widget::{button, column, container, image, progress_bar, row, rule, scrollable, space, text, text_input, tooltip};
 use iced::{Alignment, Element, Length, Task, Theme};
@@ -22,20 +23,75 @@ fn gb(bytes: u64) -> String {
     format!("{:.0} GB", bytes as f64 / 1e9)
 }
 
+/// A day's (or the trip's) videos offered before making another
+/// (Omnix gap 104): the trip, the day (none: all days), whether an empty
+/// one was asked for, and the videos there, newest first.
+#[derive(Clone, Debug)]
+pub struct Choosing {
+    pub root: PathBuf,
+    pub day: Option<String>,
+    pub empty: bool,
+    pub edits: Vec<PathBuf>,
+}
+
+/// When `edit` was last changed, in local time.
+fn changed(edit: &Path) -> String {
+    std::fs::metadata(edit).and_then(|m| m.modified()).map(|t| chrono::DateTime::<chrono::Local>::from(t).format("%d.%m.%Y %H:%M").to_string()).unwrap_or_default()
+}
+
 impl App {
+    /// «→ Omnix» (`empty`: «Empty day») on a day, or the trip (no day):
+    /// its videos made so before offered first, else a new one made and
+    /// opened (the user, 2026-11-11: each click made another copy).
+    fn day_to_omnix(&mut self, root: PathBuf, day: Option<String>, empty: bool) {
+        self.save_note();
+        let edits = dailix_sheet::project::videos_named(&root, day.as_deref().unwrap_or("all-days"));
+        if edits.is_empty() {
+            self.make_video(&root, day.as_deref(), empty);
+        } else {
+            self.choosing = Some(Choosing { root, day, empty, edits });
+        }
+    }
+
+    /// A new video of `day` (or all days) from the marking, or empty, opened in Omnix.
+    fn make_video(&mut self, root: &Path, day: Option<&str>, empty: bool) {
+        let made = if empty { omnix::from_sheet::write_empty(root, day) } else { omnix::from_sheet::write(root, day) };
+        self.error = made.map_err(|e| format!("{e:#}")).and_then(|edit| crate::editor::open(&edit)).err();
+        self.refresh_home();
+    }
+
+    /// The videos offered over the window while asked (gap 104).
+    pub(super) fn choose_layer(&self) -> Element<'_, Message> {
+        let Some(c) = &self.choosing else { return space().into() };
+        let what = c.day.as_deref().unwrap_or("The trip");
+        let mut list = column![].spacing(2);
+        for e in &c.edits {
+            let line = row![text(dailix_sheet::project::edit_name(e)).size(14), space().width(Length::Fill), text(changed(e)).size(12).style(text::secondary)].align_y(Alignment::Center);
+            list = list.push(super::tip(button(line).width(Length::Fill).padding([4, 8]).style(button::text).on_press(Message::OpenEdit(e.clone())), text("Open in Omnix"), tooltip::Position::Right));
+        }
+        let new = if c.empty { "New empty video" } else { "New from the marking" };
+        let buttons = row![
+            space().width(Length::Fill),
+            button(text("Cancel")).style(button::secondary).on_press(Message::ChooseCancel),
+            button(text(new)).style(button::primary).on_press(Message::ChooseNew),
+        ]
+        .spacing(8);
+        let card = column![text(format!("{what} has videos already")).size(20), text("Open one, or make a new one.").size(13).style(text::secondary), list, buttons].spacing(12);
+        modal(container(card).padding(18).width(520).style(container::rounded_box), Message::ChooseCancel)
+    }
+
     /// The home view's messages, and going to and from it: a project
     /// named, a day opened, an edit made for Omnix.
     pub(super) fn on_home(&mut self, message: Message) -> Task<Message> {
         match message {
-            m @ (Message::ToOmnix(..) | Message::EmptyDay(..)) => {
-                self.save_note();
-                let made = match &m {
-                    Message::EmptyDay(root, day) => omnix::from_sheet::write_empty(root, day.as_deref()),
-                    Message::ToOmnix(root, day) => omnix::from_sheet::write(root, day.as_deref()),
-                    _ => return Task::none(),
-                };
-                self.error = made.map_err(|e| format!("{e:#}")).and_then(|edit| crate::editor::open(&edit)).err();
+            Message::ToOmnix(root, day) => self.day_to_omnix(root, day, false),
+            Message::EmptyDay(root, day) => self.day_to_omnix(root, day, true),
+            Message::ChooseNew => {
+                if let Some(c) = self.choosing.take() {
+                    self.make_video(&c.root, c.day.as_deref(), c.empty);
+                }
             }
+            Message::ChooseCancel => self.choosing = None,
             Message::Name(root) => {
                 let typed = dailix_sheet::project::title(&root);
                 self.naming = Some((root, typed));
@@ -79,7 +135,10 @@ impl App {
                 self.save_about();
                 self.refresh_home();
             }
-            Message::OpenEdit(edit) => self.error = crate::editor::open(&edit).err(),
+            Message::OpenEdit(edit) => {
+                self.choosing = None;
+                self.error = crate::editor::open(&edit).err();
+            }
             Message::OpenDay(root, day) => {
                 self.save_about();
                 self.at_home = false;
