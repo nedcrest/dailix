@@ -34,6 +34,23 @@ pub struct Choosing {
     pub edits: Vec<PathBuf>,
 }
 
+/// A video in the list offered: plain, and under the pointer a lighter
+/// ground and an accent frame, so the one a click opens is plain to see
+/// (the user, 2026-11-11).
+fn video_row(theme: &Theme, status: button::Status) -> button::Style {
+    let p = theme.extended_palette();
+    let plain = button::text(theme, status);
+    match status {
+        button::Status::Hovered | button::Status::Pressed => button::Style {
+            background: Some(p.background.strong.color.into()),
+            text_color: p.background.base.text,
+            border: iced::Border { color: p.primary.base.color, width: 1.0, radius: 4.0.into() },
+            ..plain
+        },
+        _ => button::Style { border: iced::Border { radius: 4.0.into(), ..plain.border }, ..plain },
+    }
+}
+
 /// When `edit` was last changed, in local time.
 fn changed(edit: &Path) -> String {
     std::fs::metadata(edit).and_then(|m| m.modified()).map(|t| chrono::DateTime::<chrono::Local>::from(t).format("%d.%m.%Y %H:%M").to_string()).unwrap_or_default()
@@ -67,7 +84,7 @@ impl App {
         let mut list = column![].spacing(2);
         for e in &c.edits {
             let line = row![text(dailix_sheet::project::edit_name(e)).size(14), space().width(Length::Fill), text(changed(e)).size(12).style(text::secondary)].align_y(Alignment::Center);
-            list = list.push(super::tip(button(line).width(Length::Fill).padding([4, 8]).style(button::text).on_press(Message::OpenEdit(e.clone())), text("Open in Omnix"), tooltip::Position::Right));
+            list = list.push(super::tip(button(line).width(Length::Fill).padding([6, 8]).style(video_row).on_press(Message::OpenEdit(e.clone())), text("Open in Omnix"), tooltip::Position::Right));
         }
         let new = if c.empty { "New empty video" } else { "New from the marking" };
         let buttons = row![
