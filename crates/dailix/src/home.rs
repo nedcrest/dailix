@@ -31,7 +31,9 @@ pub struct Choosing {
     pub root: PathBuf,
     pub day: Option<String>,
     pub empty: bool,
-    pub edits: Vec<PathBuf>,
+    /// Each video's edit and when it was last changed (read once, as the
+    /// question opens).
+    pub edits: Vec<(PathBuf, String)>,
 }
 
 /// A video in the list offered: plain, and under the pointer a lighter
@@ -62,7 +64,10 @@ impl App {
     /// opened (the user, 2026-11-11: each click made another copy).
     fn day_to_omnix(&mut self, root: PathBuf, day: Option<String>, empty: bool) {
         self.save_note();
-        let edits = dailix_sheet::project::videos_named(&root, day.as_deref().unwrap_or("all-days"));
+        let edits: Vec<(PathBuf, String)> = dailix_sheet::project::videos_named(&root, day.as_deref().unwrap_or(dailix_sheet::project::ALL_DAYS)).into_iter().map(|e| {
+            let when = changed(&e);
+            (e, when)
+        }).collect();
         if edits.is_empty() {
             self.make_video(&root, day.as_deref(), empty);
         } else {
@@ -82,8 +87,8 @@ impl App {
         let Some(c) = &self.choosing else { return space().into() };
         let what = c.day.as_deref().unwrap_or("The trip");
         let mut list = column![].spacing(2);
-        for e in &c.edits {
-            let line = row![text(dailix_sheet::project::edit_name(e)).size(14), space().width(Length::Fill), text(changed(e)).size(12).style(text::secondary)].align_y(Alignment::Center);
+        for (e, when) in &c.edits {
+            let line = row![text(dailix_sheet::project::edit_name(e)).size(14), space().width(Length::Fill), text(when.as_str()).size(12).style(text::secondary)].align_y(Alignment::Center);
             list = list.push(super::tip(button(line).width(Length::Fill).padding([6, 8]).style(video_row).on_press(Message::OpenEdit(e.clone())), text("Open in Omnix"), tooltip::Position::Right));
         }
         let new = if c.empty { "New empty video" } else { "New from the marking" };

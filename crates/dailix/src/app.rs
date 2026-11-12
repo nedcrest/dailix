@@ -535,6 +535,35 @@ impl App {
     /// the text's size, then the contact sheet's keys (ratings, moving
     /// between tiles, the player's and the marking's). `taken`: a field
     /// used it already.
+    /// A window over the page takes the keys: Esc closes it, the rest
+    /// wait — the keys' list, the day's videos offered (Omnix gap 104; the
+    /// audit, 2026-11-12: Esc didn't close it), the new trip's form (its
+    /// fields take what they type), Settings. Whether one was open.
+    fn over_the_page(&mut self, esc: bool) -> bool {
+        let open = self.help || self.choosing.is_some() || self.new_trip.is_some() || self.settings_open.is_some();
+        if open && esc {
+            (self.help, self.choosing, self.new_trip, self.settings_open) = (false, None, None, None);
+        }
+        open
+    }
+
+    /// A new mark being described: Esc and Tab take it away, even from its
+    /// note field; ↑ ↓ Enter choose its role; nothing else.
+    fn pending_mark_key(&mut self, key: &iced::keyboard::Key, taken: bool) -> Task<Message> {
+        use iced::keyboard::Key;
+        use iced::keyboard::key::Named;
+        match key.as_ref() {
+            Key::Named(Named::Escape) => self.cancel_pending(),
+            Key::Named(Named::Tab) => {
+                self.cancel_pending();
+                self.pane.focused = false;
+            }
+            _ if !taken => return self.pending_key(key),
+            _ => {}
+        }
+        Task::none()
+    }
+
     fn on_key(&mut self, key: iced::keyboard::Key, physical: iced::keyboard::key::Physical, mods: iced::keyboard::Modifiers, taken: bool) -> Task<Message> {
         use iced::keyboard::key::{Code, Named, Physical};
         use iced::keyboard::Key;
@@ -543,24 +572,7 @@ impl App {
             self.help = !self.help;
             return Task::none();
         }
-        if self.help {
-            if matches!(key.as_ref(), Key::Named(Named::Escape)) {
-                self.help = false;
-            }
-            return Task::none();
-        }
-        // The new trip's form: Esc closes it; its fields take the rest.
-        if self.new_trip.is_some() {
-            if matches!(key.as_ref(), Key::Named(Named::Escape)) {
-                self.new_trip = None;
-            }
-            return Task::none();
-        }
-        // The Settings window: Esc closes it, the rest wait.
-        if self.settings_open.is_some() {
-            if matches!(key.as_ref(), Key::Named(Named::Escape)) {
-                self.settings_open = None;
-            }
+        if self.over_the_page(matches!(key.as_ref(), Key::Named(Named::Escape))) {
             return Task::none();
         }
         if mods.command() && matches!(key.as_ref(), Key::Character("n")) {
@@ -574,19 +586,8 @@ impl App {
             self.naming = None;
             return Task::none();
         }
-        // A new mark being described: Esc and Tab take it away, even
-        // from its note field; ↑ ↓ Enter choose its role; nothing else.
         if self.pane.pending.is_some() {
-            match key.as_ref() {
-                Key::Named(Named::Escape) => self.cancel_pending(),
-                Key::Named(Named::Tab) => {
-                    self.cancel_pending();
-                    self.pane.focused = false;
-                }
-                _ if !taken => return self.pending_key(&key),
-                _ => {}
-            }
-            return Task::none();
+            return self.pending_mark_key(&key, taken);
         }
         if taken {
             return Task::none();
