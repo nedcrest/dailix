@@ -6,16 +6,16 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
-dailix-sheet = { path = "../sheet" }
 clap.workspace = true
 serde_json.workspace = true
 serde.workspace = true
 iced.workspace = true
 rfd.workspace = true
-# Omnix's player (its `viewer`), the same the bin plays clips with; a
-# sibling repo, as Omnix depends on this one's sheet core. Building it
-# needs ALSA's headers (Omnix's own .localdeps on the dev machine).
+# Omnix's player (its `viewer`), the same the bin plays clips with, and
+# the contact sheet's core both programs share: both live in Omnix's repo.
+# Building Omnix needs ALSA's headers.
 omnix = { path = "../../../omnix-360-studio" }
+dailix-sheet = { path = "../../../omnix-360-studio/crates/sheet" }
 schemars.workspace = true
 # The system's trash, for what tidying takes away (as Omnix's bin).
 trash = { version = "5", default-features = false }
