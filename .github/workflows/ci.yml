@@ -1,0 +1,39 @@
+# Every push and pull request: Dailix builds against Omnix and the sheet
+# core, checked out beside it as on a developer's machine
+# (`../omnix-360-studio`), its tests pass and clippy reads it.
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: dailix
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/omnix-360-studio
+          path: omnix-360-studio
+      - name: System libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends pkg-config libasound2-dev ffmpeg
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: dailix
+      - name: Build
+        working-directory: dailix
+        run: cargo build --all-targets
+      - name: Test
+        working-directory: dailix
+        run: cargo test
+      - name: Clippy
+        working-directory: dailix
+        run: cargo clippy --all-targets
