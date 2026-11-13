@@ -6,7 +6,7 @@ description: The rules for changing Dailix's code, and the checks before a commi
 # Changing Dailix's code
 
 `docs/CONTEXT.md` holds the why ("Published some day", "Don't inherit,
-improve"); `docs/SHEET-CORE.md` the sheet core's design. This page is what
+improve"); Omnix's `docs/SHEET-CORE.md` the sheet core's design. This page is what
 to hold in mind while writing, learned from the audit of 2026-11-05 (its
 list: in Omnix's git history; what was kept: its `docs/omnix/ARCHITECTURE.md`): the cost was the same
 fact written in several places, and rules living in UI handlers untested.
@@ -15,7 +15,8 @@ fact written in several places, and rules living in UI handlers untested.
 
 - **Logic in the core, the window only calls it.** Anything about the
   marking, the footage, a project's folder or `project.json` belongs in
-  `crates/sheet` (`dailix_sheet`), with tests; the app (`crates/dailix`)
+  the sheet core (`dailix_sheet`, `crates/sheet` in Omnix's repo), with
+  tests; the app (`crates/dailix`)
   carries out what the core decides (see `marking::key` and the pane). A
   command (`dailix …`) for what a test or an AI needs to drive.
 - **Look for the place it already lives**, here and in Omnix
@@ -71,7 +72,7 @@ long form, with examples: Omnix's `.claude/skills/code-rules`).
 ```sh
 export PATH=$HOME/.cargo/bin:$PATH PKG_CONFIG_PATH=../omnix-360-studio/.localdeps/root/usr/lib/x86_64-linux-gnu/pkgconfig
 cargo build -q && cargo test -q    # never commit what doesn't build
-(cd ../omnix-360-studio && cargo build -q && cargo test -q --lib)   # it links dailix_sheet
+(cd ../omnix-360-studio && cargo build -q && cargo test -q --workspace)   # dailix_sheet lives there
 ```
 
 - One local commit per subtask, saying why; never push.
