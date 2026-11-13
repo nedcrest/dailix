@@ -96,10 +96,21 @@ Where the project stands and what's next: `docs/CONTEXT.md`.
 
 ## Building
 
-```text
-cargo build --release
-cargo test
+Dailix builds against Omnix (its player and sound tools) and the contact
+sheet's core, both in Omnix's repo: clone the two side by side.
+
+```sh
+git clone <omnix-360-studio> && git clone <dailix>
+sudo apt install pkg-config libasound2-dev ffmpeg   # Debian/Ubuntu
+cd dailix && cargo build --release && cargo test
 ```
+
+CI (`.github/workflows/ci.yml`) checks Omnix out beside it the same way.
+
+## Built with AI
+
+Dailix and Omnix were built by one person working with Claude: how, and
+the rules that kept it sound, in Omnix's `docs/AI-DRIVEN.md`.
 
 ## Licence
 
