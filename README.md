@@ -9,20 +9,20 @@ an editor (Omnix, `../omnix-360-studio`). Rust, built the way Omnix is.
 Status: the contact sheet works (Home of trip cards, a trip's page,
 days, rating, segments, flags, the player, «→ Omnix»), on a core with a
 command line; it replaces footage-agent's web contact sheet. A trip holds
-its videos, each with its edit and exports; a new trip is made here.
+its edits, each with its exports; a new trip is made here.
 Bringing footage in is designed (`docs/INGEST.md`), not built.
 
 ## Three places
 
-Dailix works across three places, each set in its settings (nothing about
-them is fixed in the code):
+Dailix works across three places, each set in its settings (its first
+run offers `~/Dailix/trips`, `tmp` and `sources`):
 
 ```text
+Trips      a folder per trip, with the clips chosen for it, its marking
+           and its edits (the command line calls it «projects»)
 TMP        where new material lands first, straight off a card or a phone,
            checked, before anything is decided about it
-dailix     the projects: a folder per trip or story, with the clips chosen
-           for it, its marking and its edits
-sources    every original, kept as it came off the camera, never changed,
+Sources    every original, kept as it came off the camera, never changed,
            filed by trip and day; one copy now, two some day
 ```
 
@@ -42,7 +42,7 @@ rather than a change everywhere.
    sound), and write the day's story.
 3. **File away.** The originals move from TMP into sources, by trip and
    day, unchanged.
-4. **Hand over.** The chosen clips go into a project in `dailix`, and an
+4. **Hand over.** The chosen clips go into a trip in Trips, and an
    Omnix edit is made from the marking (Omnix reads the marking itself
    too: segments set in its bin land in the same file).
 

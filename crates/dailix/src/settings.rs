@@ -35,15 +35,6 @@ impl PlaceKind {
             PlaceKind::Sources => "Sources",
         }
     }
-
-    /// Its name on the command line and in its default folder's.
-    pub fn name(self) -> &'static str {
-        match self {
-            PlaceKind::Tmp => "TMP",
-            PlaceKind::Projects => "projects",
-            PlaceKind::Sources => "sources",
-        }
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]

@@ -172,7 +172,14 @@ pub fn place_trouble(p: &Place) -> bool {
 /// Where a place goes if the user takes the defaults: one `Dailix` folder in
 /// `home`, a folder for each place in it.
 pub fn default_place(kind: PlaceKind, home: &Path) -> PathBuf {
-    home.join("Dailix").join(kind.name().to_lowercase())
+    // Named as the window names them: the trips' folder was «projects»
+    // under the label «Trips» (found writing the guide, 2026-11-14).
+    let folder = match kind {
+        PlaceKind::Projects => "trips",
+        PlaceKind::Tmp => "tmp",
+        PlaceKind::Sources => "sources",
+    };
+    home.join("Dailix").join(folder)
 }
 
 /// The places not set yet, each with its default folder in `home`: what
@@ -282,7 +289,7 @@ mod tests {
     #[test]
     fn the_defaults_are_one_folder_in_home_and_only_for_places_not_set() {
         let home = Path::new("/home/someone");
-        assert_eq!(default_place(PlaceKind::Projects, home), PathBuf::from("/home/someone/Dailix/projects"));
+        assert_eq!(default_place(PlaceKind::Projects, home), PathBuf::from("/home/someone/Dailix/trips"));
         assert_eq!(default_place(PlaceKind::Tmp, home), PathBuf::from("/home/someone/Dailix/tmp"));
         let places = [Place { kind: PlaceKind::Tmp, path: Some("/fast".into()), online: true, free: None }, Place { kind: PlaceKind::Sources, path: None, online: false, free: None }];
         assert_eq!(defaults_for(&places, home), [(PlaceKind::Sources, PathBuf::from("/home/someone/Dailix/sources"))]);
@@ -350,7 +357,7 @@ mod tests {
 
         let s = Settings { projects: Some(projects.clone()), sources: Some(crate::settings::Sources::Folder { path: base.join("gone") }), ..Default::default() };
         let p = places(&s);
-        assert_eq!(p.iter().map(|p| (p.kind.name(), p.online)).collect::<Vec<_>>(), [("projects", true), ("TMP", false), ("sources", false)]);
+        assert_eq!(p.iter().map(|p| (p.kind.label(), p.online)).collect::<Vec<_>>(), [("Trips", true), ("TMP", false), ("Sources", false)]);
         assert!(p[0].free.is_some_and(|f| f > 0));
         std::fs::remove_dir_all(&base).unwrap();
     }
