@@ -113,7 +113,7 @@ struct App {
     choosing: Option<home::Choosing>,
     /// A trip or an edit asked about before it goes to the trash, and the
     /// question's words.
-    deleting: Option<(crate::delete::Doomed, (String, String))>,
+    deleting: Option<(crate::delete::Doomed, Option<(String, String)>)>,
     /// The trip whose page the home view shows (none: the trips' cards),
     /// and its description and tags as typed there.
     trip_open: Option<PathBuf>,
@@ -175,8 +175,12 @@ enum Message {
     CardTick,
     /// A trip or an edit to the trash: asked, then said no or yes to.
     DeleteAsk(crate::delete::Doomed),
+    /// What it takes, counted off the window's thread (a big trip took
+    /// seconds, the window frozen).
+    DeleteCounted(crate::delete::Doomed, crate::delete::Size),
     DeleteCancel,
     DeleteConfirm,
+    Deleted(crate::delete::Doomed, Result<(), String>),
     /// Videos added to a trip (gap 74a): the files chosen, then copied in
     /// (what each became, or why not).
     AddVideos(PathBuf),
@@ -536,7 +540,7 @@ impl App {
                 self.width = s.width;
             }
             Message::Help => self.help = !self.help,
-            m @ (Message::ToOmnix(..) | Message::EmptyDay(..) | Message::Name(_) | Message::NameEdit(_) | Message::NameSave | Message::Home | Message::OpenDay(..) | Message::OpenTrip(_) | Message::TripCard(..) | Message::CardTick | Message::EditCard(..) | Message::EditFrames(..) | Message::AddVideos(_) | Message::VideosPicked(..) | Message::VideosAdded(_) | Message::DeleteAsk(_) | Message::DeleteCancel | Message::DeleteConfirm | Message::AboutDescription(_) | Message::AboutTags(_) | Message::AboutSave | Message::OpenEdit(_) | Message::ChooseNew | Message::ChooseCancel) => return self.on_home(m),
+            m @ (Message::ToOmnix(..) | Message::EmptyDay(..) | Message::Name(_) | Message::NameEdit(_) | Message::NameSave | Message::Home | Message::OpenDay(..) | Message::OpenTrip(_) | Message::TripCard(..) | Message::CardTick | Message::EditCard(..) | Message::EditFrames(..) | Message::AddVideos(_) | Message::VideosPicked(..) | Message::VideosAdded(_) | Message::DeleteAsk(_) | Message::DeleteCounted(..) | Message::DeleteCancel | Message::DeleteConfirm | Message::Deleted(..) | Message::AboutDescription(_) | Message::AboutTags(_) | Message::AboutSave | Message::OpenEdit(_) | Message::ChooseNew | Message::ChooseCancel) => return self.on_home(m),
             m @ (Message::Settings | Message::SettingsGroup(_) | Message::ChoosePlace(_) | Message::PlaceChosen(..) | Message::CardMotion(_) | Message::UseDefaultPlaces) => return self.on_settings(m),
             m @ (Message::NewTrip | Message::NewTripTitle(_) | Message::NewTripFolder(_) | Message::NewTripDescription(_) | Message::NewTripTags(_) | Message::NewTripMake | Message::NewTripCancel) => return self.on_new_trip(m),
             m @ (Message::Grip | Message::Pointer(_) | Message::Release | Message::Placed(_) | Message::Scale(_)) => return self.on_layout(m),

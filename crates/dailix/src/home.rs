@@ -97,7 +97,7 @@ impl App {
             Message::EmptyDay(root, day) => self.day_to_omnix(root, day, true),
             m @ (Message::TripCard(..) | Message::EditCard(..) | Message::EditFrames(..) | Message::CardTick) => return self.on_card(m),
             m @ (Message::AddVideos(_) | Message::VideosPicked(..) | Message::VideosAdded(_)) => return self.on_add(m),
-            m @ (Message::DeleteAsk(_) | Message::DeleteCancel | Message::DeleteConfirm) => self.on_delete(m),
+            m @ (Message::DeleteAsk(_) | Message::DeleteCounted(..) | Message::DeleteCancel | Message::DeleteConfirm | Message::Deleted(..)) => return self.on_delete(m),
             Message::ChooseNew => {
                 if let Some(c) = self.choosing.take() {
                     self.make_video(&c.root, c.day.as_deref(), c.empty);
@@ -224,21 +224,35 @@ impl App {
         Task::none()
     }
 
-    /// A trip or an edit to the trash: the question asked (what goes,
-    /// counted), then answered; a trip gone takes the page home.
-    fn on_delete(&mut self, message: Message) {
+    /// A trip or an edit to the trash: the question asked at once, what
+    /// goes counted off the window's thread; then answered, the trash
+    /// done off it too; a trip gone takes the page home.
+    fn on_delete(&mut self, message: Message) -> Task<Message> {
+        use crate::delete::{Size, size};
         match message {
             Message::DeleteAsk(doomed) => {
-                let size = doomed.folders().iter().map(|f| crate::delete::size(f)).fold(crate::delete::Size::default(), |a, b| crate::delete::Size { files: a.files + b.files, bytes: a.bytes + b.bytes });
-                let words = crate::delete::question(&doomed, size);
-                self.deleting = Some((doomed, words));
+                self.deleting = Some((doomed.clone(), None));
+                let folders = doomed.folders();
+                return Task::perform(
+                    super::blocking(move || folders.iter().map(|f| size(f)).fold(Size::default(), |a, b| Size { files: a.files + b.files, bytes: a.bytes + b.bytes })),
+                    move |counted| Message::DeleteCounted(doomed.clone(), counted),
+                );
+            }
+            Message::DeleteCounted(doomed, counted) => {
+                if let Some((asked, words)) = &mut self.deleting
+                    && *asked == doomed
+                {
+                    *words = Some(crate::delete::question(&doomed, counted));
+                }
             }
             Message::DeleteCancel => self.deleting = None,
             Message::DeleteConfirm => {
-                let Some((doomed, _)) = self.deleting.take() else { return };
-                if let Err(e) = crate::delete::trash(&doomed) {
-                    self.error = Some(e);
-                }
+                let Some((doomed, Some(_))) = self.deleting.take() else { return Task::none() };
+                let gone = doomed.clone();
+                return Task::perform(super::blocking(move || crate::delete::trash(&gone)), move |done| Message::Deleted(doomed.clone(), done));
+            }
+            Message::Deleted(doomed, done) => {
+                self.error = done.err();
                 if let crate::delete::Doomed::Trip(root) = &doomed {
                     if self.trip_open.as_ref() == Some(root) {
                         self.trip_open = None;
@@ -252,18 +266,23 @@ impl App {
             }
             _ => {}
         }
+        Task::none()
     }
 
     /// The question before a trip or an edit goes to the trash.
     pub(super) fn delete_layer(&self) -> Element<'_, Message> {
-        let Some((_, (title, said))) = &self.deleting else { return space().into() };
+        let Some((doomed, words)) = &self.deleting else { return space().into() };
+        let (title, said) = match words {
+            Some((title, said)) => (title.clone(), said.clone()),
+            None => (crate::delete::question(doomed, crate::delete::Size::default()).0, "Counting what goes…".to_owned()),
+        };
         let buttons = row![
             space().width(Length::Fill),
             button(text("Cancel")).style(button::secondary).on_press(Message::DeleteCancel),
-            button(text("Move to trash")).style(button::danger).on_press(Message::DeleteConfirm),
+            button(text("Move to trash")).style(button::danger).on_press_maybe(words.is_some().then_some(Message::DeleteConfirm)),
         ]
         .spacing(8);
-        let card = column![text(title.clone()).size(20), text(said.clone()).size(14).style(text::secondary), buttons].spacing(14);
+        let card = column![text(title).size(20), text(said).size(14).style(text::secondary), buttons].spacing(14);
         modal(container(card).padding(20).width(520).style(container::rounded_box), Message::DeleteCancel)
     }
 
