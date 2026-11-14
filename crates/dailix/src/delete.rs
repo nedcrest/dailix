@@ -59,11 +59,11 @@ pub fn question(doomed: &Doomed, size: Size) -> (String, String) {
     match doomed {
         Doomed::Trip(_) => (
             format!("Are you sure you want to move the trip «{}» to the trash?", doomed.name()),
-            format!("Its footage copies, marks, voices and edits go with it: {} files, {amount}. The originals in the sources stay as they are. The trash can give it back.", size.files),
+            format!("Its footage copies, marks, voices and edits go with it: {}, {amount}. The originals in the sources stay as they are. The trash can give it back.", crate::library::count(size.files as usize, "file")),
         ),
         Doomed::Edit(_) => (
             format!("Are you sure you want to move the edit «{}» to the trash?", doomed.name()),
-            format!("The edit and its exports go: {} files, {amount}. Close it in Omnix first. The trash can give it back.", size.files),
+            format!("The edit and its exports go: {}, {amount}. Close it in Omnix first. The trash can give it back.", crate::library::count(size.files as usize, "file")),
         ),
     }
 }

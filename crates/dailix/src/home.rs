@@ -432,7 +432,7 @@ impl App {
     fn trip_card<'a>(&'a self, trip: &'a Trip) -> Element<'a, Message> {
         let mut info = column![
             text(trip.title.clone()).size(17),
-            text(format!("{} · {} days · {} clips · {} edits", trip.dates(), trip.days.len(), trip.clips(), trip.edits.len())).size(12).style(text::secondary),
+            text(format!("{} · {} · {} · {}", trip.dates(), library::count(trip.days.len(), "day"), library::count(trip.clips(), "clip"), library::count(trip.edits.len(), "edit"))).size(12).style(text::secondary),
         ]
         .spacing(4);
         if let Some(first) = trip.about.description.lines().next().filter(|l| !l.is_empty()) {
@@ -461,7 +461,7 @@ impl App {
         };
         let head = row![
             name,
-            text(format!("{dates} · {} days · {} clips", trip.days.len(), trip.clips())).size(13).style(text::secondary),
+            text(format!("{dates} · {} · {}", library::count(trip.days.len(), "day"), library::count(trip.clips(), "clip"))).size(13).style(text::secondary),
             all("→ Omnix (all days)", Message::ToOmnix(trip.root.clone(), None), "An edit of every day from its marking, opened in Omnix"),
             all("Empty edit", Message::EmptyDay(trip.root.clone(), None), "An empty edit in Omnix, every day's clips in its bin"),
             all("+ Add videos…", Message::AddVideos(trip.root.clone()), "Videos copied into the trip, each under the day it was filmed (the originals stay as they are)"),
@@ -503,7 +503,7 @@ impl App {
         };
         let info = column![
             row![text(d.day.clone()).size(14), space().width(Length::Fill), text(story).size(14)].align_y(Alignment::Center),
-            text(format!("{} clips · {} rated", d.clips, d.rated)).size(12).style(text::secondary),
+            text(format!("{} · {} rated", library::count(d.clips, "clip"), d.rated)).size(12).style(text::secondary),
             progress_bar(0.0..=1.0, rated).girth(4),
             text(format!("project {}/{} · {sources}", d.in_project, d.clips)).size(11).style(text::secondary),
         ]

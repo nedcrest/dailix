@@ -93,19 +93,24 @@ pub fn trip(root: &Path) -> Result<Trip, String> {
     Ok(Trip { root: root.to_owned(), title, about: dailix_sheet::project::about(root), days, edits: dailix_sheet::project::edits(root), frames })
 }
 
+/// `n` of `one` in words: «1 clip», «2 clips», «0 clips».
+pub fn count(n: usize, one: &str) -> String {
+    if n == 1 { format!("1 {one}") } else { format!("{n} {one}s") }
+}
+
 /// The trips as text, a line per trip and per day: what the home view
 /// shows, for the command line, tests and an AI.
 pub fn describe(trips: &[Trip]) -> String {
     let mut out = String::new();
     for t in trips {
-        out.push_str(&format!("{}  {} days  {} clips\n", t.title, t.days.len(), t.clips()));
+        out.push_str(&format!("{}  {}  {}\n", t.title, count(t.days.len(), "day"), count(t.clips(), "clip")));
         for d in &t.days {
             let sources = match d.in_sources {
                 Some(true) => "sources",
                 Some(false) => "not in sources",
                 None => "sources offline",
             };
-            out.push_str(&format!("  {}  {} clips  {} rated  {}  project {}/{}  {sources}\n", d.day, d.clips, d.rated, if d.story { "story" } else { "no story" }, d.in_project, d.clips));
+            out.push_str(&format!("  {}  {}  {} rated  {}  project {}/{}  {sources}\n", d.day, count(d.clips, "clip"), d.rated, if d.story { "story" } else { "no story" }, d.in_project, d.clips));
         }
     }
     out
@@ -210,6 +215,11 @@ mod tests {
     use super::*;
 
     #[test]
+    fn counts_are_said_one_or_many() {
+        assert_eq!((count(1, "clip"), count(2, "clip"), count(0, "edit")), ("1 clip".to_owned(), "2 clips".to_owned(), "0 edits".to_owned()));
+    }
+
+    #[test]
     fn the_home_folder_is_said_as_a_tilde() {
         let home = Path::new("/home/someone");
         assert_eq!(tilde(Path::new("/home/someone/Dailix/projects"), home), "~/Dailix/projects");
@@ -286,7 +296,7 @@ mod tests {
         assert!(!std::fs::read_to_string(layout.sheet()).unwrap().contains("\"id\""));
         assert_eq!(
             describe(&trips),
-            "2030-05_sea  2 days  3 clips\n  2030-05-01  2 clips  1 rated  story  project 2/2  sources\n  2030-05-02  1 clips  0 rated  no story  project 0/1  not in sources\n"
+            "2030-05_sea  2 days  3 clips\n  2030-05-01  2 clips  1 rated  story  project 2/2  sources\n  2030-05-02  1 clip  0 rated  no story  project 0/1  not in sources\n"
         );
 
         // Its name as people say it, when it has one.

@@ -773,7 +773,7 @@ impl App {
             text("An empty edit of this day in Omnix, its clips in the bin, to build the idea afresh"),
             tooltip::Position::Bottom,
         );
-        let head = row![text(day.day.clone()).size(18), text(format!("{} clips · {rated} rated", day.clips.len())).size(13).style(text::secondary), to_omnix, empty].spacing(12).align_y(Alignment::Center);
+        let head = row![text(day.day.clone()).size(18), text(format!("{} · {rated} rated", crate::library::count(day.clips.len(), "clip"))).size(13).style(text::secondary), to_omnix, empty].spacing(12).align_y(Alignment::Center);
         let story: Element<'a, Message> = match self.drafts.get(&day.day) {
             Some(content) => {
                 let d = day.day.clone();
