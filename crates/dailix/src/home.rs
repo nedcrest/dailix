@@ -21,6 +21,11 @@ const TRIP_CARD: f32 = 320.0;
 /// An edit's card, two side by side in the question before a new one.
 const EDIT_CARD: f32 = 236.0;
 
+/// `c` darker, `k` of its brightness kept.
+fn shade(c: iced::Color, k: f32) -> iced::Color {
+    iced::Color { r: c.r * k, g: c.g * k, b: c.b * k, a: c.a }
+}
+
 fn gb(bytes: u64) -> String {
     format!("{:.0} GB", bytes as f64 / 1e9)
 }
@@ -270,28 +275,59 @@ impl App {
         scrollable(page).height(Length::Fill).into()
     }
 
-    /// A first run's welcome (the user, 2026-11-14): each place its own
-    /// button, the folder it would take beside it (its default in the
-    /// home folder until one is chosen), and one button taking them all.
+    /// A first run's welcome (the user, 2026-11-14): a card in the middle,
+    /// 60 % of the window wide; a tile per place, the trips' first (the one
+    /// needed), each with what it's for, its folder in a box of its own
+    /// (its default in the home folder until one is chosen) and a button to
+    /// choose another; one button takes them all.
     fn welcome(&self) -> Element<'_, Message> {
+        use crate::settings::PlaceKind;
         let home = std::env::home_dir().unwrap_or_default();
-        let what = |kind: crate::settings::PlaceKind| match kind {
-            crate::settings::PlaceKind::Projects => ("Trips", "where each trip keeps its footage, marks and videos"),
-            crate::settings::PlaceKind::Tmp => ("TMP", "where footage lands first from cards and phones"),
-            crate::settings::PlaceKind::Sources => ("Sources", "where the originals are kept, never changed"),
-        };
-        let mut rows = column![].spacing(10);
-        for p in &self.places {
-            let (label, hint) = what(p.kind);
-            let pick = super::tip(button(text(format!("{label}…")).size(14)).width(120).padding([5, 12]).style(button::secondary).on_press(Message::ChoosePlace(p.kind)), text(format!("Choose the folder: {hint}")), tooltip::Position::Bottom);
-            let path: Element<'_, Message> = match &p.path {
-                Some(path) => text(format!("✓ {}", path.display())).size(14).into(),
-                None => text(format!("{}  (default)", library::default_place(p.kind, &home).display())).size(14).style(text::secondary).into(),
+        let tile = |kind: PlaceKind| -> Element<'_, Message> {
+            let (label, hint, needed) = match kind {
+                PlaceKind::Projects => ("Trips", "Where each trip keeps its footage, marks and videos.", true),
+                PlaceKind::Tmp => ("TMP", "Where footage lands first, from cards and phones.", false),
+                PlaceKind::Sources => ("Sources", "Where the originals are kept, never changed.", false),
             };
-            rows = rows.push(row![pick, column![path, text(hint).size(12).style(text::secondary)].spacing(2)].spacing(14).align_y(Alignment::Center));
-        }
-        let take = button(text("Use these folders").size(14)).padding([6, 14]).style(button::primary).on_press(Message::UseDefaultPlaces);
-        column![text("Welcome to Dailix").size(22), text("Three folders and you're set. Choose each, or take the ones shown.").size(14).style(text::secondary), rows, take].spacing(14).max_width(720).into()
+            let place = self.places.iter().find(|p| p.kind == kind);
+            let chosen = place.and_then(|p| p.path.clone());
+            let (path, state) = match &chosen {
+                Some(p) => (p.display().to_string(), "✓ chosen"),
+                None => (library::default_place(kind, &home).display().to_string(), "default"),
+            };
+            let tag = text(if needed { "needed" } else { "optional" }).size(12).style(text::secondary);
+            let head = row![text(label).size(19), tag, space().width(Length::Fill), button(text("Choose…").size(14)).padding([5, 14]).style(button::secondary).on_press(Message::ChoosePlace(kind))].spacing(10).align_y(Alignment::Center);
+            let field = container(row![text(path).size(14).font(iced::Font::MONOSPACE), space().width(Length::Fill), text(state).size(12).style(if chosen.is_some() { text::success } else { text::secondary })].align_y(Alignment::Center))
+                .padding([8, 12])
+                .width(Length::Fill)
+                .style(|t: &Theme| container::Style { background: Some(shade(t.extended_palette().background.base.color, 0.6).into()), border: iced::Border { color: t.extended_palette().background.strong.color, width: 1.0, radius: 6.0.into() }, ..Default::default() });
+            container(column![head, text(hint).size(14).style(text::secondary), field].spacing(8))
+                .padding(16)
+                .width(Length::Fill)
+                .style(|t: &Theme| container::Style { background: Some(t.extended_palette().background.base.color.into()), border: iced::Border { color: iced::Color { a: 0.08, ..iced::Color::WHITE }, width: 1.0, radius: 10.0.into() }, ..Default::default() })
+                .into()
+        };
+        let take = button(text("Use these folders").size(15)).padding([8, 18]).style(button::primary).on_press(Message::UseDefaultPlaces);
+        let card = container(
+            column![
+                text("Welcome to Dailix").size(28),
+                text("Three folders and you're set. Choose each, or take the ones shown.").size(16).style(text::secondary),
+                tile(PlaceKind::Projects),
+                tile(PlaceKind::Tmp),
+                tile(PlaceKind::Sources),
+                row![space().width(Length::Fill), take],
+            ]
+            .spacing(16),
+        )
+        .padding(28)
+        .width(Length::FillPortion(6))
+        .style(|t: &Theme| container::Style {
+            background: Some(t.extended_palette().background.weak.color.into()),
+            border: iced::Border { color: iced::Color { a: 0.1, ..iced::Color::WHITE }, width: 1.0, radius: 14.0.into() },
+            shadow: iced::Shadow { color: iced::Color { a: 0.5, ..iced::Color::BLACK }, offset: iced::Vector::new(0.0, 10.0), blur_radius: 30.0 },
+            ..Default::default()
+        });
+        row![space().width(Length::FillPortion(2)), card, space().width(Length::FillPortion(2))].padding([24, 0]).into()
     }
 
     /// The places, a chip each: there (●) or not (○), and the free space.
