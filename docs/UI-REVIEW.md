@@ -176,12 +176,17 @@ Tags         [tutorial] [guide] [+]
 2. Foundations (one style module, one set of words) — nothing looks
    new, everything after is quicker. *Done* (`ui.rs`, `PlaceKind::label`,
    `home::to_omnix`).
-3. The top bar with ☰ and the way back.
+3. The top bar with ☰ and the way back. *Done.*
 4. Ratings: the colour on the tile, the linked toggle, the filter bar.
+   *Done.*
 5. The trip page: «→ Omnix ▾» and ⋯; no red in the row; labels.
-6. The player pane as an inspector, with buttons for marks.
-7. The days list and sticky headings.
+   *Done* (tags still typed, not chips).
+6. The player pane as an inspector, with buttons for marks. *Done.*
+7. The days list and sticky headings. *Done* but the sticky heading
+   (iced has no sticky layout; the bar's path names the day), and the
+   list lights the picked clip's day rather than following the scroll.
 8. Home: «+ New trip» as the accent, the places as a footer, a ⋯ per card.
-9. Feedback for long jobs.
+   *Done.*
+9. Feedback for long jobs. *Done.*
 
 The welcome stays as it is (the user approved it, 2026-11-14).
