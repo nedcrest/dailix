@@ -247,11 +247,10 @@ impl App {
 
     pub(super) fn home(&self) -> Element<'_, Message> {
         let mut page = column![self.places_strip()].spacing(18).padding([8, 16]);
-        if self.trips.is_empty() {
-            page = page.push(text(match &self.settings.projects {
-                Some(p) => format!("No projects in {}", p.display()),
-                None => "No projects place set (dailix places --projects …)".to_owned(),
-            }));
+        // Before any trip: what to set, and a button to set it.
+        if let Some((said, choose)) = library::first_run(&self.places, self.trips.len()) {
+            let choose = choose.map(|kind| button(text(format!("Choose the {} folder…", kind.name())).size(14)).padding([5, 12]).on_press(Message::ChoosePlace(kind)));
+            page = page.push(column![text(said).size(15)].push(choose).spacing(10).max_width(640));
         }
         match self.trip_open.as_ref().and_then(|r| self.trips.iter().find(|t| &t.root == r)) {
             Some(trip) => page = page.push(rule::horizontal(1)).push(self.trip_page(trip)),
