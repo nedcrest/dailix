@@ -19,6 +19,12 @@ use dailix_sheet::{Doc, Op, Sheet, Store};
 use std::path::PathBuf;
 use std::process::ExitCode;
 
+/// Dailix's command line as the guide's reference page (made as Omnix's).
+fn commands_page() -> String {
+    use clap::CommandFactory;
+    omnix::reference::commands(&Cli::command(), "dailix", "Commands: Dailix", "Made by `dailix commands`")
+}
+
 #[derive(Parser)]
 #[command(name = "dailix", version, about = "Bringing footage in and choosing it")]
 struct Cli {
@@ -31,10 +37,10 @@ struct Cli {
 enum Command {
     /// The window, on the project at this folder.
     Open { project: PathBuf },
-    /// A new trip in the projects place, in the fixed layout (user,
-    /// 2026-11-08: a new project is made here, Omnix asks for one). With a
-    /// title it's made and its folder printed; without, the window opens
-    /// on the form.
+    // A new project is made here; Omnix asks for one (user, 2026-11-08).
+    /// A new trip in the Trips place, in the fixed layout. With a title
+    /// it's made and its folder printed; without, the window opens on the
+    /// form.
     NewTrip {
         title: Option<String>,
         /// Its folder's name (default: the month and the title in Latin).
@@ -60,7 +66,8 @@ enum Command {
     /// The contact sheet's marking (a project's `dailix/sheet.json`).
     #[command(subcommand)]
     Sheet(SheetCmd),
-    /// Clips' cleaned voices (Omnix gap 77): what's made, making one,
+    // Omnix gap 77.
+    /// Clips' cleaned voices: what's made, making one,
     /// measuring their loudness.
     #[command(subcommand)]
     Voice(VoiceCmd),
@@ -74,7 +81,7 @@ enum Command {
         #[arg(long)]
         sources: Option<PathBuf>,
     },
-    /// A footage-agent project made into a Dailix one, in the projects
+    /// A footage-agent project made into a Dailix one, in the Trips
     /// place; the old one and the archive are only read.
     ImportLegacy {
         old: PathBuf,
@@ -90,7 +97,10 @@ enum Command {
     /// Every key and gesture of the window, as Markdown tables (the
     /// guide's reference page, the F1 list).
     Keys,
-    /// The trips in the projects place (or in the folder given) as the home
+    /// Every command and its arguments, as Markdown (the guide's
+    /// reference page; the same text as --help).
+    Commands,
+    /// The trips in the Trips place (or in the folder given) as the home
     /// view sums them up: a line per trip and per day.
     Trips { projects: Option<PathBuf> },
     /// A project's name as people say it: shows it, or sets it (an empty
@@ -155,7 +165,8 @@ enum VoiceCmd {
     },
     /// The loudness of every voice not measured yet (made by footage-agent).
     Measure { project: PathBuf },
-    /// Where clip `<day>/<file>` holds speech (gap 83), found in its
+    // Gap 83.
+    /// Where clip `<day>/<file>` holds speech, found in its
     /// cleaned voice: a line per stretch, seconds.
     Speech { project: PathBuf, clip: String },
     /// Clip `<day>/<file>`'s edit to use its voice made by RECIPE, or its
@@ -379,6 +390,10 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
             print!("{}", help::page());
             return Ok(());
         }
+        Command::Commands => {
+            print!("{}", commands_page());
+            return Ok(());
+        }
         Command::Install => {
             for f in install::install()? {
                 println!("{}", f.display());
@@ -432,6 +447,18 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
 
 #[cfg(test)]
 mod tests {
+    /// The guide (in Omnix's repo beside this one) shows this command line
+    /// as it is now: `OMNIX_BLESS=1 cargo test` writes it.
+    #[test]
+    fn the_guides_commands_page_is_the_programs() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../omnix-360-studio/docs/guide/commands-dailix.md");
+        let page = super::commands_page();
+        if std::env::var_os("OMNIX_BLESS").is_some() {
+            std::fs::write(&path, &page).unwrap();
+        }
+        assert_eq!(std::fs::read_to_string(&path).unwrap_or_default(), page, "{} is behind the commands: OMNIX_BLESS=1 cargo test writes it", path.display());
+    }
+
     use super::*;
 
     #[test]
