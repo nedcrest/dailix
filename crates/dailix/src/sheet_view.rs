@@ -106,8 +106,21 @@ impl App {
         match message {
             Message::Filter(f) => {
                 self.filter = f;
-                // The picked clip hidden: the first one shown instead.
-                return self.step(0);
+                // Nothing picked: nothing opened. The picked clip hidden:
+                // the nearest one shown; none shown: the player emptied
+                // (a click opened a clip, or kept a hidden one: the
+                // audit, 2026-11-14).
+                let (Some(p), Some(picked)) = (&self.project, self.selected.clone()) else { return Task::none() };
+                let shown = |k: &str| self.filter.shows(Self::rating_of(p, k));
+                return match step_from(&self.order(), shown, Some(&picked), 0) {
+                    Some(k) if k == picked => Task::none(),
+                    Some(k) => self.select(k),
+                    None => {
+                        self.selected = None;
+                        self.pane = super::pane::Pane::default();
+                        Task::none()
+                    }
+                };
             }
             Message::TileHover(key, true) => self.tile_hover = Some(key),
             Message::TileHover(key, false) => {
