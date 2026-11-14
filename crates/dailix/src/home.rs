@@ -481,7 +481,7 @@ impl App {
         }
         // Each card with its way to the trash under it (a click on the card
         // opens it).
-        let trash = |e: &PathBuf| button(text("Move to trash…").size(12)).padding([2, 8]).style(button::text).on_press(Message::DeleteAsk(crate::delete::Doomed::Edit(e.clone())));
+        let trash = |e: &PathBuf| button(text("Move to trash…").size(13)).padding([4, 12]).style(button::danger).on_press(Message::DeleteAsk(crate::delete::Doomed::Edit(e.clone())));
         edits = edits.push(iced::widget::row(trip.edits.iter().map(|e| column![self.edit_card(e, ""), trash(e)].spacing(2).into())).spacing(14).wrap().vertical_spacing(14));
         let cards = iced::widget::row(trip.days.iter().map(|d| self.day_card(trip, d))).spacing(10).wrap().vertical_spacing(10);
         column![head, about, edits, text("Days").size(15), cards].spacing(12).into()

@@ -58,11 +58,11 @@ pub fn question(doomed: &Doomed, size: Size) -> (String, String) {
     let amount = if size.bytes >= 1_000_000_000 { format!("{:.1} GB", size.bytes as f64 / 1e9) } else { format!("{:.0} MB", (size.bytes as f64 / 1e6).max(1.0)) };
     match doomed {
         Doomed::Trip(_) => (
-            format!("Move the trip «{}» to the trash?", doomed.name()),
+            format!("Are you sure you want to move the trip «{}» to the trash?", doomed.name()),
             format!("Its footage copies, marks, voices and edits go with it: {} files, {amount}. The originals in the sources stay as they are. The trash can give it back.", size.files),
         ),
         Doomed::Edit(_) => (
-            format!("Move the edit «{}» to the trash?", doomed.name()),
+            format!("Are you sure you want to move the edit «{}» to the trash?", doomed.name()),
             format!("The edit and its exports go: {} files, {amount}. Close it in Omnix first. The trash can give it back.", size.files),
         ),
     }
@@ -83,9 +83,9 @@ mod tests {
     #[test]
     fn the_question_says_what_goes_and_that_the_originals_stay() {
         let (title, said) = question(&Doomed::Trip("/p/2026-11_tutorial".into()), Size { files: 12, bytes: 2_400_000_000 });
-        assert!(title.starts_with("Move the trip") && said.contains("12 files, 2.4 GB") && said.contains("originals in the sources stay"), "{said}");
+        assert!(title.starts_with("Are you sure you want to move the trip «") && said.contains("12 files, 2.4 GB") && said.contains("originals in the sources stay"), "{said}");
         let (title, said) = question(&Doomed::Edit("/p/t/videos/Day one/edit.json".into()), Size { files: 3, bytes: 10 });
-        assert!(title.starts_with("Move the edit") && said.contains("3 files, 1 MB") && said.contains("Close it in Omnix"), "{title} {said}");
+        assert!(title.starts_with("Are you sure you want to move the edit «") && said.contains("3 files, 1 MB") && said.contains("Close it in Omnix"), "{title} {said}");
     }
 
     #[test]
