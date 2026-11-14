@@ -46,6 +46,23 @@ fn changed(edit: &Path) -> String {
     std::fs::metadata(edit).and_then(|m| m.modified()).map(|t| chrono::DateTime::<chrono::Local>::from(t).format("%d.%m.%Y %H:%M").to_string()).unwrap_or_default()
 }
 
+/// A day's «→ Omnix» and «Empty edit» (the trip's, no `day`), `small` on
+/// a card: one pair, worded once, wherever it shows (the day card, the
+/// sheet's day heading, the trip's page).
+pub(super) fn to_omnix<'a>(root: &Path, day: Option<&str>, small: bool) -> [Element<'a, Message>; 2] {
+    let (go, empty) = match day {
+        Some(_) => ("An edit of this day from its marking, opened in Omnix", "An empty edit of this day in Omnix, its clips in the bin"),
+        None => ("An edit of every day from its marking, opened in Omnix", "An empty edit in Omnix, every day's clips in its bin"),
+    };
+    let label = if day.is_some() { "→ Omnix" } else { "→ Omnix (all days)" };
+    let one = |label: &'static str, msg: Message, hint: &'static str| {
+        let b = if small { ui::small(label, ui::Kind::Secondary) } else { ui::act(label, ui::Kind::Secondary) };
+        super::tip(b.on_press(msg), text(hint), tooltip::Position::Bottom)
+    };
+    let day = day.map(str::to_owned);
+    [one(label, Message::ToOmnix(root.to_path_buf(), day.clone()), go), one("Empty edit", Message::EmptyDay(root.to_path_buf(), day), empty)]
+}
+
 impl App {
     /// «→ Omnix» (`empty`: «Empty edit») on a day, or the trip (no day):
     /// its videos made so before offered first, else a new one made and
@@ -486,11 +503,12 @@ impl App {
             Some((root, typed)) if *root == trip.root => text_input("the folder's name", typed).id(NAME).size(18).width(320).on_input(Message::NameEdit).on_submit(Message::NameSave).into(),
             _ => super::tip(button(text(trip.title.clone()).size(18)).padding(0).style(button::text).on_press(Message::Name(trip.root.clone())), text("Rename (the folder keeps its name)"), tooltip::Position::Bottom),
         };
+        let [go, empty] = to_omnix(&trip.root, None, false);
         let head = row![
             name,
             text(format!("{dates} · {} · {}", library::count(trip.days.len(), "day"), library::count(trip.clips(), "clip"))).size(13).style(text::secondary),
-            all("→ Omnix (all days)", Message::ToOmnix(trip.root.clone(), None), "An edit of every day from its marking, opened in Omnix"),
-            all("Empty edit", Message::EmptyDay(trip.root.clone(), None), "An empty edit in Omnix, every day's clips in its bin"),
+            go,
+            empty,
             all("+ Add videos…", Message::AddVideos(trip.root.clone()), "Videos copied into the trip, each under the day it was filmed (the originals stay as they are)"),
             super::tip(ui::act("Delete trip…", ui::Kind::Danger).on_press(Message::DeleteAsk(crate::delete::Doomed::Trip(trip.root.clone()))), text("To the system's trash, after a question; the originals in the sources stay"), tooltip::Position::Bottom),
         ]
@@ -538,12 +556,7 @@ impl App {
         .width(CARD);
         let open = button(column![poster, info].spacing(6)).padding(0).style(button::text).on_press(Message::OpenDay(trip.root.clone(), d.day.clone()));
         // The day straight into Omnix: its edit from the marking, or empty.
-        let small = |label: &'static str, msg: Message, hint: &'static str| super::tip(ui::small(label, ui::Kind::Secondary).on_press(msg), text(hint), tooltip::Position::Bottom);
-        let actions = row![
-            small("→ Omnix", Message::ToOmnix(trip.root.clone(), Some(d.day.clone())), "An edit of this day from its marking, opened in Omnix"),
-            small("Empty edit", Message::EmptyDay(trip.root.clone(), Some(d.day.clone())), "An empty edit of this day in Omnix, its clips in the bin"),
-        ]
-        .spacing(6);
+        let actions = iced::widget::Row::with_children(to_omnix(&trip.root, Some(&d.day), true)).spacing(6);
         container(column![open, actions].spacing(6).width(CARD)).padding(6).style(container::rounded_box).into()
     }
 }

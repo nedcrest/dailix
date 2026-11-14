@@ -800,16 +800,7 @@ impl App {
     /// A day: its date, how far it's rated, its story, its clips.
     fn day<'a>(&'a self, p: &'a Project, day: &'a footage::Day) -> Element<'a, Message> {
         let rated = day.clips.iter().filter(|c| p.sheet.clips.get(&c.key).is_some_and(|s| s.rating.is_some())).count();
-        let to_omnix = tip(
-            ui::act("→ Omnix", ui::Kind::Secondary).on_press(Message::ToOmnix(p.footage.layout.root.clone(), Some(day.day.clone()))),
-            text("An edit of this day from its marking, opened in Omnix (a new video of the trip)"),
-            tooltip::Position::Bottom,
-        );
-        let empty = tip(
-            ui::act("Empty edit", ui::Kind::Secondary).on_press(Message::EmptyDay(p.footage.layout.root.clone(), Some(day.day.clone()))),
-            text("An empty edit of this day in Omnix, its clips in the bin, to build the idea afresh"),
-            tooltip::Position::Bottom,
-        );
+        let [to_omnix, empty] = home::to_omnix(&p.footage.layout.root, Some(&day.day), false);
         let head = row![text(day.day.clone()).size(18), text(format!("{} · {rated} rated", crate::library::count(day.clips.len(), "clip"))).size(13).style(text::secondary), to_omnix, empty].spacing(12).align_y(Alignment::Center);
         let story: Element<'a, Message> = match self.drafts.get(&day.day) {
             Some(content) => {
