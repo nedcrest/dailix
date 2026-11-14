@@ -304,7 +304,7 @@ impl App {
 
     /// The roles to choose from: none first, the sheet's eight, the user's.
     fn role_choices(&self) -> Vec<RoleChoice> {
-        let none = RoleChoice { key: String::new(), name: "— без ролі".to_owned() };
+        let none = RoleChoice { key: String::new(), name: "— No role".to_owned() };
         let roles = self.project.iter().flat_map(|p| p.sheet.all_roles()).map(|r| RoleChoice { name: r.name(), key: r.key });
         std::iter::once(none).chain(roles).collect()
     }
@@ -315,7 +315,7 @@ impl App {
         Color::from_rgb8(r, g, b)
     }
 
-    /// A role as it reads ("розмова / sync"); one the sheet doesn't know,
+    /// A role as it reads ("B-roll"); one the sheet doesn't know,
     /// its key.
     fn role_name(&self, role: Option<&str>) -> String {
         role.map(|r| self.project.as_ref().and_then(|p| p.sheet.role(r)).map_or(r.to_owned(), |x| x.name())).unwrap_or_default()

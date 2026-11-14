@@ -10,7 +10,7 @@ pub fn install() -> Result<Vec<std::path::PathBuf>, Box<dyn std::error::Error>> 
     // StartupWMClass: the window's class (its application id), so the
     // dock shows this entry's icon for the open window.
     let entry = format!(
-        "[Desktop Entry]\nType=Application\nName=Dailix\nComment=Відзнятий матеріал: переглянути й відібрати\nExec=\"{}\"\nIcon=dailix\nTerminal=false\nCategories=AudioVideo;Video;\nStartupWMClass=dailix\n",
+        "[Desktop Entry]\nType=Application\nName=Dailix\nComment=Look through a trip's footage and choose it\nExec=\"{}\"\nIcon=dailix\nTerminal=false\nCategories=AudioVideo;Video;\nStartupWMClass=dailix\n",
         std::env::current_exe()?.display()
     );
     omnix::desktop::install("dailix", &entry, ICON)
