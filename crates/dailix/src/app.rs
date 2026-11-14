@@ -782,7 +782,6 @@ impl App {
                 text(hint),
                 tooltip::Position::Top,
             )
-            .into()
         };
         let segments = mark.map_or(0, |m| m.marks.iter().filter(|x| x.kind != MarkKind::Flag).count());
         let flags = mark.map_or(0, |m| m.marks.iter().filter(|x| x.kind == MarkKind::Flag).count());
