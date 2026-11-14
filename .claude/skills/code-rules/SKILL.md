@@ -70,7 +70,7 @@ long form, with examples: Omnix's `.claude/skills/code-rules`).
 ## Before each commit
 
 ```sh
-# Where ALSA's headers aren't installed, PKG_CONFIG_PATH as Omnix's docs/omnix/LOCAL.md says.
+# Where ALSA's headers aren't installed, PKG_CONFIG_PATH as Omnix's .analysis/LOCAL.md says.
 cargo build -q && cargo test -q    # never commit what doesn't build
 (cd ../omnix-360-studio && cargo build -q && cargo test -q --workspace)   # dailix_sheet lives there
 ```
