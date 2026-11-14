@@ -146,6 +146,18 @@ pub fn defaults_for(places: &[Place], home: &Path) -> Vec<(PlaceKind, PathBuf)> 
     places.iter().filter(|p| p.path.is_none()).map(|p| (p.kind, default_place(p.kind, home))).collect()
 }
 
+/// `path` cut to `most` characters in the middle, so its start and its
+/// last folder (the part people know) stay: `/home/someone/…/projects`.
+pub fn middle(path: &str, most: usize) -> String {
+    let chars: Vec<char> = path.chars().collect();
+    if chars.len() <= most || most < 5 {
+        return path.to_owned();
+    }
+    let tail = (most - 1) / 2 + (most - 1) % 2;
+    let head = most - 1 - tail;
+    chars[..head].iter().chain(['…'].iter()).chain(&chars[chars.len() - tail..]).collect()
+}
+
 /// What Home shows before any trip can.
 #[derive(Debug, PartialEq)]
 pub enum FirstRun {
@@ -188,6 +200,14 @@ pub fn free_space(_: &Path) -> Option<u64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_long_path_is_cut_in_the_middle_keeping_its_last_folder() {
+        assert_eq!(middle("/home/someone/Dailix/projects", 40), "/home/someone/Dailix/projects");
+        let cut = middle("/media/someone/Big Disk/Trips/2026/everything/projects", 30);
+        assert_eq!(cut.chars().count(), 30);
+        assert!(cut.starts_with("/media/") && cut.ends_with("/projects") && cut.contains('…'), "{cut}");
+    }
 
     #[test]
     fn the_defaults_are_one_folder_in_home_and_only_for_places_not_set() {
