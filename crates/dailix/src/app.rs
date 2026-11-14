@@ -109,6 +109,9 @@ struct App {
     /// «→ Omnix» or «Empty day» asked on a day that has such videos
     /// already: which to open, or a new one (Omnix gap 104).
     choosing: Option<home::Choosing>,
+    /// A trip or an edit asked about before it goes to the trash, and the
+    /// question's words.
+    deleting: Option<(crate::delete::Doomed, (String, String))>,
     /// The trip whose page the home view shows (none: the trips' cards),
     /// and its description and tags as typed there.
     trip_open: Option<PathBuf>,
@@ -166,6 +169,10 @@ enum Message {
     /// it's there: its tiles change.
     TripCard(PathBuf, omnix::cards::view::Event),
     CardTick,
+    /// A trip or an edit to the trash: asked, then said no or yes to.
+    DeleteAsk(crate::delete::Doomed),
+    DeleteCancel,
+    DeleteConfirm,
     /// Videos added to a trip (gap 74a): the files chosen, then copied in
     /// (what each became, or why not).
     AddVideos(PathBuf),
@@ -290,7 +297,7 @@ impl App {
             Start::NewTrip => (None, true),
         };
         let settings = Settings::load();
-        let mut app = App { project: None, error: None, making: HashSet::new(), voice_makes: HashSet::new(), drafts: HashMap::new(), dirty: HashSet::new(), selected: None, pane: pane::Pane::default(), height: 920.0, scale: settings.scale.unwrap_or(1.0), width: 1500.0, pane_share: settings.pane_share.unwrap_or(pane::SHARE), grip: None, help: false, settings_open: None, at_home: true, card_hover: None, edit_frames: Default::default(), trips: Vec::new(), places: Vec::new(), naming: None, choosing: None, trip_open: None, about: Default::default(), new_trip: None, settings };
+        let mut app = App { project: None, error: None, making: HashSet::new(), voice_makes: HashSet::new(), drafts: HashMap::new(), dirty: HashSet::new(), selected: None, pane: pane::Pane::default(), height: 920.0, scale: settings.scale.unwrap_or(1.0), width: 1500.0, pane_share: settings.pane_share.unwrap_or(pane::SHARE), grip: None, help: false, settings_open: None, at_home: true, card_hover: None, edit_frames: Default::default(), trips: Vec::new(), places: Vec::new(), naming: None, choosing: None, deleting: None, trip_open: None, about: Default::default(), new_trip: None, settings };
         // A project named opens; else where the window was left (home on
         // the first run, or when it was left there).
         app.refresh_home();
@@ -501,7 +508,7 @@ impl App {
                 self.width = s.width;
             }
             Message::Help => self.help = !self.help,
-            m @ (Message::ToOmnix(..) | Message::EmptyDay(..) | Message::Name(_) | Message::NameEdit(_) | Message::NameSave | Message::Home | Message::OpenDay(..) | Message::OpenTrip(_) | Message::TripCard(..) | Message::CardTick | Message::EditCard(..) | Message::EditFrames(..) | Message::AddVideos(_) | Message::VideosPicked(..) | Message::VideosAdded(_) | Message::AboutDescription(_) | Message::AboutTags(_) | Message::AboutSave | Message::OpenEdit(_) | Message::ChooseNew | Message::ChooseCancel) => return self.on_home(m),
+            m @ (Message::ToOmnix(..) | Message::EmptyDay(..) | Message::Name(_) | Message::NameEdit(_) | Message::NameSave | Message::Home | Message::OpenDay(..) | Message::OpenTrip(_) | Message::TripCard(..) | Message::CardTick | Message::EditCard(..) | Message::EditFrames(..) | Message::AddVideos(_) | Message::VideosPicked(..) | Message::VideosAdded(_) | Message::DeleteAsk(_) | Message::DeleteCancel | Message::DeleteConfirm | Message::AboutDescription(_) | Message::AboutTags(_) | Message::AboutSave | Message::OpenEdit(_) | Message::ChooseNew | Message::ChooseCancel) => return self.on_home(m),
             m @ (Message::Settings | Message::SettingsGroup(_) | Message::ChoosePlace(_) | Message::PlaceChosen(..) | Message::CardMotion(_) | Message::UseDefaultPlaces) => return self.on_settings(m),
             m @ (Message::NewTrip | Message::NewTripTitle(_) | Message::NewTripFolder(_) | Message::NewTripDescription(_) | Message::NewTripTags(_) | Message::NewTripMake | Message::NewTripCancel) => return self.on_new_trip(m),
             m @ (Message::Grip | Message::Pointer(_) | Message::Release | Message::Placed(_) | Message::Scale(_)) => return self.on_layout(m),
@@ -563,9 +570,9 @@ impl App {
     /// audit, 2026-11-12: Esc didn't close it), the new trip's form (its
     /// fields take what they type), Settings. Whether one was open.
     fn over_the_page(&mut self, esc: bool) -> bool {
-        let open = self.help || self.choosing.is_some() || self.new_trip.is_some() || self.settings_open.is_some();
+        let open = self.help || self.choosing.is_some() || self.new_trip.is_some() || self.settings_open.is_some() || self.deleting.is_some();
         if open && esc {
-            (self.help, self.choosing, self.new_trip, self.settings_open) = (false, None, None, None);
+            (self.help, self.choosing, self.new_trip, self.settings_open, self.deleting) = (false, None, None, None, None);
         }
         open
     }
@@ -686,7 +693,7 @@ impl App {
     /// always there (empty when hidden), so the window under it keeps its
     /// state (a scroll, a field's focus) when the list comes up.
     fn view(&self) -> Element<'_, Message> {
-        iced::widget::stack![self.page(), self.settings_layer(), self.new_trip_layer(), self.choose_layer(), self.help_layer()].into()
+        iced::widget::stack![self.page(), self.settings_layer(), self.new_trip_layer(), self.choose_layer(), self.delete_layer(), self.help_layer()].into()
     }
 
     fn help_layer(&self) -> Element<'_, Message> {

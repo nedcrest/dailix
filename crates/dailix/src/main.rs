@@ -4,6 +4,7 @@
 
 mod add;
 mod app;
+mod delete;
 mod help;
 mod import;
 mod library;

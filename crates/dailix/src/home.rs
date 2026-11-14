@@ -72,14 +72,14 @@ impl App {
         let Some(c) = &self.choosing else { return space().into() };
         let what = c.day.as_deref().unwrap_or("The trip");
         let list = iced::widget::row(c.edits.iter().map(|(e, when)| self.edit_card(e, when))).spacing(14).wrap().vertical_spacing(14);
-        let new = if c.empty { "New empty video" } else { "New from the marking" };
+        let new = if c.empty { "New empty edit" } else { "New from the marking" };
         let buttons = row![
             space().width(Length::Fill),
             button(text("Cancel")).style(button::secondary).on_press(Message::ChooseCancel),
             button(text(new)).style(button::primary).on_press(Message::ChooseNew),
         ]
         .spacing(8);
-        let card = column![text(format!("{what} has videos already")).size(20), text("Open one, or make a new one.").size(13).style(text::secondary), list, buttons].spacing(12);
+        let card = column![text(format!("{what} has edits already")).size(20), text("Open one, or make a new one.").size(13).style(text::secondary), list, buttons].spacing(12);
         modal(container(card).padding(18).width(520).style(container::rounded_box), Message::ChooseCancel)
     }
 
@@ -92,6 +92,7 @@ impl App {
             Message::EmptyDay(root, day) => self.day_to_omnix(root, day, true),
             m @ (Message::TripCard(..) | Message::EditCard(..) | Message::EditFrames(..) | Message::CardTick) => return self.on_card(m),
             m @ (Message::AddVideos(_) | Message::VideosPicked(..) | Message::VideosAdded(_)) => return self.on_add(m),
+            m @ (Message::DeleteAsk(_) | Message::DeleteCancel | Message::DeleteConfirm) => self.on_delete(m),
             Message::ChooseNew => {
                 if let Some(c) = self.choosing.take() {
                     self.make_video(&c.root, c.day.as_deref(), c.empty);
@@ -219,6 +220,49 @@ impl App {
         Task::none()
     }
 
+    /// A trip or an edit to the trash: the question asked (what goes,
+    /// counted), then answered; a trip gone takes the page home.
+    fn on_delete(&mut self, message: Message) {
+        match message {
+            Message::DeleteAsk(doomed) => {
+                let size = doomed.folders().iter().map(|f| crate::delete::size(f)).fold(crate::delete::Size::default(), |a, b| crate::delete::Size { files: a.files + b.files, bytes: a.bytes + b.bytes });
+                let words = crate::delete::question(&doomed, size);
+                self.deleting = Some((doomed, words));
+            }
+            Message::DeleteCancel => self.deleting = None,
+            Message::DeleteConfirm => {
+                let Some((doomed, _)) = self.deleting.take() else { return };
+                if let Err(e) = crate::delete::trash(&doomed) {
+                    self.error = Some(e);
+                }
+                if let crate::delete::Doomed::Trip(root) = &doomed {
+                    if self.trip_open.as_ref() == Some(root) {
+                        self.trip_open = None;
+                    }
+                    if self.settings.last_trip.as_ref() == Some(root) {
+                        self.settings.last_trip = None;
+                        let _ = self.settings.save();
+                    }
+                }
+                self.refresh_home();
+            }
+            _ => {}
+        }
+    }
+
+    /// The question before a trip or an edit goes to the trash.
+    pub(super) fn delete_layer(&self) -> Element<'_, Message> {
+        let Some((_, (title, said))) = &self.deleting else { return space().into() };
+        let buttons = row![
+            space().width(Length::Fill),
+            button(text("Cancel")).style(button::secondary).on_press(Message::DeleteCancel),
+            button(text("Move to trash")).style(button::danger).on_press(Message::DeleteConfirm),
+        ]
+        .spacing(8);
+        let card = column![text(title.clone()).size(20), text(said.clone()).size(14).style(text::secondary), buttons].spacing(14);
+        modal(container(card).padding(20).width(520).style(container::rounded_box), Message::DeleteCancel)
+    }
+
     /// The edits shown as cards (the open trip's, the ones offered before
     /// a new one): their frames read, or the next made off the window's
     /// thread.
@@ -311,7 +355,7 @@ impl App {
         let home = std::env::home_dir().unwrap_or_default();
         let row_of = |kind: PlaceKind| -> Element<'_, Message> {
             let (label, hint, optional) = match kind {
-                PlaceKind::Projects => ("Trips", "Each trip keeps its footage, marks and videos here.", false),
+                PlaceKind::Projects => ("Trips", "Each trip keeps its footage, marks and edits here.", false),
                 PlaceKind::Tmp => ("TMP", "Footage lands here first, from cards and phones.", true),
                 PlaceKind::Sources => ("Sources", "The originals are kept here, never changed.", true),
             };
@@ -388,7 +432,7 @@ impl App {
     fn trip_card<'a>(&'a self, trip: &'a Trip) -> Element<'a, Message> {
         let mut info = column![
             text(trip.title.clone()).size(17),
-            text(format!("{} · {} days · {} clips · {} videos", trip.dates(), trip.days.len(), trip.clips(), trip.edits.len())).size(12).style(text::secondary),
+            text(format!("{} · {} days · {} clips · {} edits", trip.dates(), trip.days.len(), trip.clips(), trip.edits.len())).size(12).style(text::secondary),
         ]
         .spacing(4);
         if let Some(first) = trip.about.description.lines().next().filter(|l| !l.is_empty()) {
@@ -421,6 +465,7 @@ impl App {
             all("→ Omnix (all days)", Message::ToOmnix(trip.root.clone(), None), "An edit of every day from its marking, opened in Omnix"),
             all("Empty edit", Message::EmptyDay(trip.root.clone(), None), "An empty edit in Omnix, every day's clips in its bin"),
             all("+ Add videos…", Message::AddVideos(trip.root.clone()), "Videos copied into the trip, each under the day it was filmed (the originals stay as they are)"),
+            super::tip(button(text("Delete trip…").size(13)).padding([3, 10]).style(button::danger).on_press(Message::DeleteAsk(crate::delete::Doomed::Trip(trip.root.clone()))), text("To the system's trash, after a question; the originals in the sources stay"), tooltip::Position::Bottom),
         ]
         .spacing(12)
         .align_y(Alignment::Center);
@@ -430,11 +475,14 @@ impl App {
         ]
         .spacing(6)
         .max_width(760);
-        let mut edits = column![text("Videos").size(15)].spacing(4);
+        let mut edits = column![text("Edits").size(15)].spacing(4);
         if trip.edits.is_empty() {
             edits = edits.push(text("None yet: → Omnix or Empty edit make one.").size(12).style(text::secondary));
         }
-        edits = edits.push(iced::widget::row(trip.edits.iter().map(|e| self.edit_card(e, ""))).spacing(14).wrap().vertical_spacing(14));
+        // Each card with its way to the trash under it (a click on the card
+        // opens it).
+        let trash = |e: &PathBuf| button(text("Move to trash…").size(12)).padding([2, 8]).style(button::text).on_press(Message::DeleteAsk(crate::delete::Doomed::Edit(e.clone())));
+        edits = edits.push(iced::widget::row(trip.edits.iter().map(|e| column![self.edit_card(e, ""), trash(e)].spacing(2).into())).spacing(14).wrap().vertical_spacing(14));
         let cards = iced::widget::row(trip.days.iter().map(|d| self.day_card(trip, d))).spacing(10).wrap().vertical_spacing(10);
         column![head, about, edits, text("Days").size(15), cards].spacing(12).into()
     }
