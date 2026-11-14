@@ -9,3 +9,6 @@
 *.OSV
 *.insv
 *.LRF
+
+# This machine's paths: local only (publishing, Omnix gap 109).
+docs/LOCAL.md
