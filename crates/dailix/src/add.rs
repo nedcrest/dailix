@@ -113,8 +113,16 @@ pub fn add(root: &Path, picks: &[Pick], day: Option<&str>) -> Result<Vec<String>
         let on = day.map(str::to_owned).or_else(|| day_of(&name, source.created_at.as_deref())).ok_or_else(|| format!("{}: no date in its name or in it; give the day (--day)", pick.file.display()))?;
         let target = target_name(pick);
         let to = layout.clip(&format!("{on}/{target}"));
+        // There already: left as it is, its sidecar written if it has none
+        // (copied in by hand, the Kos trip's phone days).
         if to.exists() {
-            said.push(format!("{on}/{target}: there already, left as it is"));
+            if dailix_sheet::footage::sidecar_path(&layout, &on, &target).exists() {
+                said.push(format!("{on}/{target}: there already, left as it is"));
+            } else {
+                let tech = Technical { created_at: source.created_at.clone(), ..probe(&to)? };
+                write_sidecar(&layout, &on, &target, &tech)?;
+                said.push(format!("{on}/{target}: there already; now the sheet sees it"));
+            }
             continue;
         }
         match pick.span {
