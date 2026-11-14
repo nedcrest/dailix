@@ -52,6 +52,19 @@ impl App {
                     move |folder: Option<PathBuf>| Message::PlaceChosen(kind, folder),
                 );
             }
+            Message::UseDefaultPlaces => {
+                let Some(home) = std::env::home_dir() else { return Task::none() };
+                for (kind, folder) in crate::library::defaults_for(&self.places, &home) {
+                    match std::fs::create_dir_all(&folder) {
+                        Ok(()) => self.settings.set_place(kind, folder),
+                        Err(e) => self.error = Some(format!("{} couldn't be made: {e}", folder.display())),
+                    }
+                }
+                if let Err(e) = self.settings.save() {
+                    self.error = Some(format!("The settings couldn't be saved: {e}"));
+                }
+                self.refresh_home();
+            }
             Message::PlaceChosen(kind, Some(folder)) => {
                 self.settings.set_place(kind, folder);
                 if let Err(e) = self.settings.save() {

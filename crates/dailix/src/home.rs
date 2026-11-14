@@ -247,10 +247,15 @@ impl App {
 
     pub(super) fn home(&self) -> Element<'_, Message> {
         let mut page = column![self.places_strip()].spacing(18).padding([8, 16]);
-        // Before any trip: what to set, and a button to set it.
-        if let Some((said, choose)) = library::first_run(&self.places, self.trips.len()) {
-            let choose = choose.map(|kind| button(text(format!("Choose the {} folder…", kind.name())).size(14)).padding([5, 12]).on_press(Message::ChoosePlace(kind)));
-            page = page.push(column![text(said).size(15)].push(choose).spacing(10).max_width(640));
+        // Before any trip: the first run's welcome; else what's missing,
+        // and a button to set it.
+        match library::first_run(&self.places, self.trips.len()) {
+            Some(library::FirstRun::Welcome) => page = page.push(self.welcome()),
+            Some(library::FirstRun::Say(said, choose)) => {
+                let choose = choose.map(|kind| button(text(format!("Choose the {} folder…", kind.name())).size(14)).padding([5, 12]).on_press(Message::ChoosePlace(kind)));
+                page = page.push(column![text(said).size(15)].push(choose).spacing(10).max_width(640));
+            }
+            None => {}
         }
         match self.trip_open.as_ref().and_then(|r| self.trips.iter().find(|t| &t.root == r)) {
             Some(trip) => page = page.push(rule::horizontal(1)).push(self.trip_page(trip)),
@@ -263,6 +268,30 @@ impl App {
             }
         }
         scrollable(page).height(Length::Fill).into()
+    }
+
+    /// A first run's welcome (the user, 2026-11-14): each place its own
+    /// button, the folder it would take beside it (its default in the
+    /// home folder until one is chosen), and one button taking them all.
+    fn welcome(&self) -> Element<'_, Message> {
+        let home = std::env::home_dir().unwrap_or_default();
+        let what = |kind: crate::settings::PlaceKind| match kind {
+            crate::settings::PlaceKind::Projects => ("Trips", "where each trip keeps its footage, marks and videos"),
+            crate::settings::PlaceKind::Tmp => ("TMP", "where footage lands first from cards and phones"),
+            crate::settings::PlaceKind::Sources => ("Sources", "where the originals are kept, never changed"),
+        };
+        let mut rows = column![].spacing(10);
+        for p in &self.places {
+            let (label, hint) = what(p.kind);
+            let pick = super::tip(button(text(format!("{label}…")).size(14)).width(120).padding([5, 12]).style(button::secondary).on_press(Message::ChoosePlace(p.kind)), text(format!("Choose the folder: {hint}")), tooltip::Position::Bottom);
+            let path: Element<'_, Message> = match &p.path {
+                Some(path) => text(format!("✓ {}", path.display())).size(14).into(),
+                None => text(format!("{}  (default)", library::default_place(p.kind, &home).display())).size(14).style(text::secondary).into(),
+            };
+            rows = rows.push(row![pick, column![path, text(hint).size(12).style(text::secondary)].spacing(2)].spacing(14).align_y(Alignment::Center));
+        }
+        let take = button(text("Use these folders").size(14)).padding([6, 14]).style(button::primary).on_press(Message::UseDefaultPlaces);
+        column![text("Welcome to Dailix").size(22), text("Three folders and you're set. Choose each, or take the ones shown.").size(14).style(text::secondary), rows, take].spacing(14).max_width(720).into()
     }
 
     /// The places, a chip each: there (●) or not (○), and the free space.

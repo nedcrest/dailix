@@ -134,22 +134,39 @@ pub fn places(s: &Settings) -> Vec<Place> {
         .collect()
 }
 
-/// What Home says before any trip can show, and the place to choose
-/// next if one is wanted: a stranger's first run (the projects place not
-/// set), a disk not plugged in, an empty projects place. None once there
-/// are trips.
-pub fn first_run(places: &[Place], trips: usize) -> Option<(String, Option<PlaceKind>)> {
+/// Where a place goes if the user takes the defaults: one `Dailix` folder in
+/// `home`, a folder for each place in it.
+pub fn default_place(kind: PlaceKind, home: &Path) -> PathBuf {
+    home.join("Dailix").join(kind.name().to_lowercase())
+}
+
+/// The places not set yet, each with its default folder in `home`: what
+/// «Use these folders» sets (and makes).
+pub fn defaults_for(places: &[Place], home: &Path) -> Vec<(PlaceKind, PathBuf)> {
+    places.iter().filter(|p| p.path.is_none()).map(|p| (p.kind, default_place(p.kind, home))).collect()
+}
+
+/// What Home shows before any trip can.
+#[derive(Debug, PartialEq)]
+pub enum FirstRun {
+    /// A stranger's first run, the projects place not set: the welcome,
+    /// each place to choose.
+    Welcome,
+    /// Something to say, and the place to choose if one is wanted: a disk
+    /// not plugged in, an empty projects place.
+    Say(String, Option<PlaceKind>),
+}
+
+/// What Home shows before any trip can; none once there are trips.
+pub fn first_run(places: &[Place], trips: usize) -> Option<FirstRun> {
     if trips > 0 {
         return None;
     }
     let projects = places.iter().find(|p| p.kind == PlaceKind::Projects)?;
     Some(match (&projects.path, projects.online) {
-        (None, _) => (
-            "Welcome to Dailix. First, choose the folder your trips live in (projects). Then TMP, where footage lands from cards and phones, and sources, where the originals are kept unchanged: the chips above, or Settings.".to_owned(),
-            Some(PlaceKind::Projects),
-        ),
-        (Some(p), false) => (format!("The projects folder {} isn't there: is its disk plugged in?", p.display()), Some(PlaceKind::Projects)),
-        (Some(p), true) => (format!("No trips in {} yet: + New trip makes one.", p.display()), None),
+        (None, _) => FirstRun::Welcome,
+        (Some(p), false) => FirstRun::Say(format!("The projects folder {} isn't there: is its disk plugged in?", p.display()), Some(PlaceKind::Projects)),
+        (Some(p), true) => FirstRun::Say(format!("No trips in {} yet: + New trip makes one.", p.display()), None),
     })
 }
 
@@ -173,15 +190,23 @@ mod tests {
     use super::*;
 
     #[test]
+    fn the_defaults_are_one_folder_in_home_and_only_for_places_not_set() {
+        let home = Path::new("/home/someone");
+        assert_eq!(default_place(PlaceKind::Projects, home), PathBuf::from("/home/someone/Dailix/projects"));
+        assert_eq!(default_place(PlaceKind::Tmp, home), PathBuf::from("/home/someone/Dailix/tmp"));
+        let places = [Place { kind: PlaceKind::Tmp, path: Some("/fast".into()), online: true, free: None }, Place { kind: PlaceKind::Sources, path: None, online: false, free: None }];
+        assert_eq!(defaults_for(&places, home), [(PlaceKind::Sources, PathBuf::from("/home/someone/Dailix/sources"))]);
+    }
+
+    #[test]
     fn a_first_run_says_which_folder_to_choose_and_why() {
         let place = |kind, path: Option<&str>, online| Place { kind, path: path.map(PathBuf::from), online, free: None };
         let unset = [place(PlaceKind::Tmp, None, false), place(PlaceKind::Projects, None, false), place(PlaceKind::Sources, None, false)];
-        let (said, choose) = first_run(&unset, 0).unwrap();
-        assert!(said.starts_with("Welcome") && choose == Some(PlaceKind::Projects), "{said}");
+        assert_eq!(first_run(&unset, 0), Some(FirstRun::Welcome));
         let away = [place(PlaceKind::Projects, Some("/trips"), false)];
-        assert_eq!(first_run(&away, 0).map(|f| f.1), Some(Some(PlaceKind::Projects)), "its disk not plugged in");
+        assert!(matches!(first_run(&away, 0), Some(FirstRun::Say(_, Some(PlaceKind::Projects)))), "its disk not plugged in");
         let empty = [place(PlaceKind::Projects, Some("/trips"), true)];
-        assert_eq!(first_run(&empty, 0), Some(("No trips in /trips yet: + New trip makes one.".to_owned(), None)));
+        assert_eq!(first_run(&empty, 0), Some(FirstRun::Say("No trips in /trips yet: + New trip makes one.".to_owned(), None)));
         assert_eq!(first_run(&empty, 2), None, "trips to show");
     }
 
