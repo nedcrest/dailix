@@ -172,9 +172,10 @@ Tags         [tutorial] [guide] [+]
 
 ## In what order (the most for the least first)
 
-1. Bugs 1–4 above.
+1. Bugs 1–4 above. *Done.*
 2. Foundations (one style module, one set of words) — nothing looks
-   new, everything after is quicker.
+   new, everything after is quicker. *Done* (`ui.rs`, `PlaceKind::label`,
+   `home::to_omnix`).
 3. The top bar with ☰ and the way back.
 4. Ratings: the colour on the tile, the linked toggle, the filter bar.
 5. The trip page: «→ Omnix ▾» and ⋯; no red in the row; labels.
