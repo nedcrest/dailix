@@ -76,7 +76,8 @@ fn probe(file: &Path) -> Result<Technical, Error> {
 }
 
 /// `pick`'s span of its file written to `to`, as recorded (no new
-/// encoding: from the key frame before its start), whole or not at all.
+/// encoding: from the key frame before its start; the picture and the
+/// sound only), whole or not at all.
 fn cut(pick: &Pick, (a, b): (f64, f64), to: &Path) -> Result<(), Error> {
     let dir = to.parent().unwrap_or(Path::new("."));
     std::fs::create_dir_all(dir)?;
@@ -84,7 +85,9 @@ fn cut(pick: &Pick, (a, b): (f64, f64), to: &Path) -> Result<(), Error> {
     let status = omnix::sound::tool("ffmpeg")
         .args(["-v", "error", "-y", "-ss", &a.to_string(), "-to", &b.to_string(), "-i"])
         .arg(&pick.file)
-        .args(["-map", "0", "-c", "copy", "-map_metadata", "0", "-movflags", "+faststart"])
+        // The picture and the sound: a camera's own data tracks (DJI's
+        // gyro streams) don't go into an MP4 copied as they are.
+        .args(["-map", "0:v:0", "-map", "0:a?", "-c", "copy", "-map_metadata", "0", "-movflags", "+faststart"])
         .arg(&part)
         .status()?;
     if !status.success() {
