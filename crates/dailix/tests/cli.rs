@@ -60,7 +60,7 @@ fn trips_are_listed_as_the_home_view_sums_them_up() {
     std::fs::write(layout.sheet(), r#"{"clips": {"2030-05-01/A.MP4": {"rating": 2}}}"#).unwrap();
     let (ok, out, err) = dailix_run(&["trips", base.to_str().unwrap()]);
     assert!(ok, "{err}");
-    assert_eq!(out, "2030-05_sea  1 days  1 clips\n  2030-05-01  1 clips  1 rated  no story  project 0/1  sources offline\n");
+    assert_eq!(out, "2030-05_sea  1 day  1 clip\n  2030-05-01  1 clip  1 rated  no story  project 0/1  sources offline\n");
     std::fs::remove_dir_all(&base).unwrap();
 }
 
