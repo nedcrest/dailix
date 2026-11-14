@@ -17,7 +17,7 @@ pub(super) const NAME: &str = "project-name";
 
 /// A day card's width, and a trip card's; their posters are 16:9.
 const CARD: f32 = 200.0;
-const TRIP_CARD: f32 = 300.0;
+const TRIP_CARD: f32 = 320.0;
 
 fn gb(bytes: u64) -> String {
     format!("{:.0} GB", bytes as f64 / 1e9)
@@ -108,6 +108,14 @@ impl App {
         match message {
             Message::ToOmnix(root, day) => self.day_to_omnix(root, day, false),
             Message::EmptyDay(root, day) => self.day_to_omnix(root, day, true),
+            Message::TripCard(root, omnix::cards::view::Event::Open) => return self.on_home(Message::OpenTrip(root)),
+            Message::TripCard(root, omnix::cards::view::Event::Enter) => self.card_hover = Some((root, std::time::Instant::now())),
+            Message::TripCard(root, omnix::cards::view::Event::Exit) => {
+                if self.card_hover.as_ref().is_some_and(|(r, _)| *r == root) {
+                    self.card_hover = None;
+                }
+            }
+            Message::CardTick => {}
             Message::ChooseNew => {
                 if let Some(c) = self.choosing.take() {
                     self.make_video(&c.root, c.day.as_deref(), c.empty);
@@ -247,25 +255,22 @@ impl App {
 
     /// A trip as a card on the home view; a click opens its page.
     fn trip_card<'a>(&'a self, trip: &'a Trip) -> Element<'a, Message> {
-        let h = (TRIP_CARD * 9.0 / 16.0).round();
-        let poster: Element<'a, Message> = match trip.poster() {
-            Some(p) => image(image::Handle::from_path(p)).width(TRIP_CARD).height(h).into(),
-            None => container(text(trip.title.clone()).size(14).style(text::secondary)).width(TRIP_CARD).height(h).center_x(TRIP_CARD).center_y(h).style(container::rounded_box).into(),
-        };
         let mut info = column![
             text(trip.title.clone()).size(17),
             text(format!("{} · {} days · {} clips · {} videos", trip.dates(), trip.days.len(), trip.clips(), trip.edits.len())).size(12).style(text::secondary),
         ]
-        .spacing(4)
-        .width(TRIP_CARD);
+        .spacing(4);
         if let Some(first) = trip.about.description.lines().next().filter(|l| !l.is_empty()) {
             info = info.push(text(first.to_owned()).size(13));
         }
         if !trip.about.tags.is_empty() {
             info = info.push(text(trip.about.tags.iter().map(|t| format!("#{t}")).collect::<Vec<_>>().join("  ")).size(12).style(text::secondary));
         }
-        let card = button(column![poster, info].spacing(8)).padding(8).style(button::text).on_press(Message::OpenTrip(trip.root.clone()));
-        container(card).style(container::rounded_box).into()
+        // Omnix's project card (gap 110): its posters as a 2×2 mosaic,
+        // changing while hovered; sheets behind, a trip being a collection.
+        let hovered = self.card_hover.as_ref().filter(|(r, _)| *r == trip.root).map(|(_, since)| Some(since.elapsed()));
+        let root = trip.root.clone();
+        omnix::cards::view::card(&trip.frames, hovered, TRIP_CARD, true, info.into(), move |e| Message::TripCard(root.clone(), e))
     }
 
     /// A trip's page: its name, dates and whole-trip edits for Omnix; its

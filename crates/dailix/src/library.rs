@@ -34,16 +34,14 @@ pub struct Trip {
     pub about: dailix_sheet::project::About,
     pub days: Vec<Day>,
     pub edits: Vec<PathBuf>,
+    /// Its card's frames (Omnix's project cards, gap 110): up to 16 of
+    /// its clips' posters made so far, spread over its days in order.
+    pub frames: omnix::cards::view::Frames,
 }
 
 impl Trip {
     pub fn clips(&self) -> usize {
         self.days.iter().map(|d| d.clips).sum()
-    }
-
-    /// Its first day's poster that's made, for its card.
-    pub fn poster(&self) -> Option<&Path> {
-        self.days.iter().find_map(|d| d.poster.as_deref())
     }
 
     /// Its first and last day: «a – b», or one day.
@@ -90,7 +88,9 @@ pub fn trip(root: &Path) -> Result<Trip, String> {
             in_sources: sources.as_ref().filter(|s| s.is_dir()).map(|s| s.join(&d.day).is_dir()),
         })
         .collect();
-    Ok(Trip { root: root.to_owned(), title, about: dailix_sheet::project::about(root), days, edits: dailix_sheet::project::edits(root) })
+    let posters: Vec<PathBuf> = footage.days.iter().flat_map(|d| d.clips.iter().map(|c| c.poster.clone())).filter(|p| p.is_file()).collect();
+    let frames = omnix::cards::view::Frames::from_files(&omnix::cards::spread(&posters, omnix::cards::FRAMES));
+    Ok(Trip { root: root.to_owned(), title, about: dailix_sheet::project::about(root), days, edits: dailix_sheet::project::edits(root), frames })
 }
 
 /// The trips as text, a line per trip and per day: what the home view
