@@ -591,15 +591,16 @@ impl App {
         let rated = if d.clips == 0 { 0.0 } else { d.rated as f32 / d.clips as f32 };
         let story = if d.story { "✎" } else { "" };
         let sources = match d.in_sources {
-            Some(true) => "sources ✓",
-            Some(false) => "sources —",
-            None => "sources offline",
+            library::InSources::There => " · sources ✓",
+            library::InSources::Missing => " · sources —",
+            library::InSources::Offline => " · sources offline",
+            library::InSources::NotNamed => "",
         };
         let info = column![
             row![text(d.day.clone()).size(14), space().width(Length::Fill), text(story).size(14)].align_y(Alignment::Center),
             text(format!("{} · {} rated", library::count(d.clips, "clip"), d.rated)).size(12).style(text::secondary),
             progress_bar(0.0..=1.0, rated).girth(4),
-            text(format!("project {}/{} · {sources}", d.in_project, d.clips)).size(11).style(text::secondary),
+            text(format!("project {}/{}{sources}", d.in_project, d.clips)).size(11).style(text::secondary),
         ]
         .spacing(4)
         .width(CARD);

@@ -21,9 +21,31 @@ pub struct Day {
     pub poster: Option<PathBuf>,
     /// Its clips found in the project's footage.
     pub in_project: usize,
-    /// Its folder in the sources: there, missing, or unknown (the sources'
-    /// place offline, or the project names none).
-    pub in_sources: Option<bool>,
+    /// Its folder in the sources.
+    pub in_sources: InSources,
+}
+
+/// A day's folder in the sources: there or missing; unknown while their
+/// folder is away; nothing to say for a trip that names none (one made
+/// with `dailix add`: the card said «sources offline» there, as if a disk
+/// were missing).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InSources {
+    There,
+    Missing,
+    Offline,
+    NotNamed,
+}
+
+impl InSources {
+    fn of(sources: Option<&Path>, day: &str) -> InSources {
+        match sources {
+            None => InSources::NotNamed,
+            Some(s) if !s.is_dir() => InSources::Offline,
+            Some(s) if s.join(day).is_dir() => InSources::There,
+            Some(_) => InSources::Missing,
+        }
+    }
 }
 
 /// A trip: a project, what was written about it, its days and its edits.
@@ -85,7 +107,7 @@ pub fn trip(root: &Path) -> Result<Trip, String> {
             story: sheet.days.get(&d.day).is_some_and(|n| !n.note.trim().is_empty()),
             poster: d.clips.iter().map(|c| c.poster.clone()).find(|p| p.is_file()),
             in_project: d.clips.iter().filter(|c| c.path.is_file()).count(),
-            in_sources: sources.as_ref().filter(|s| s.is_dir()).map(|s| s.join(&d.day).is_dir()),
+            in_sources: InSources::of(sources.as_deref(), &d.day),
         })
         .collect();
     let posters: Vec<PathBuf> = footage.days.iter().flat_map(|d| d.clips.iter().map(|c| c.poster.clone())).filter(|p| p.is_file()).collect();
@@ -106,11 +128,14 @@ pub fn describe(trips: &[Trip]) -> String {
         out.push_str(&format!("{}  {}  {}\n", t.title, count(t.days.len(), "day"), count(t.clips(), "clip")));
         for d in &t.days {
             let sources = match d.in_sources {
-                Some(true) => "sources",
-                Some(false) => "not in sources",
-                None => "sources offline",
+                InSources::There => "sources",
+                InSources::Missing => "not in sources",
+                InSources::Offline => "sources offline",
+                InSources::NotNamed => "",
             };
-            out.push_str(&format!("  {}  {}  {} rated  {}  project {}/{}  {sources}\n", d.day, count(d.clips, "clip"), d.rated, if d.story { "story" } else { "no story" }, d.in_project, d.clips));
+            let line = format!("  {}  {}  {} rated  {}  project {}/{}  {sources}", d.day, count(d.clips, "clip"), d.rated, if d.story { "story" } else { "no story" }, d.in_project, d.clips);
+            out.push_str(line.trim_end());
+            out.push('\n');
         }
     }
     out
@@ -232,6 +257,14 @@ mod tests {
     }
 
     #[test]
+    fn a_trip_naming_no_sources_says_nothing_of_them() {
+        let here = std::env::temp_dir();
+        assert_eq!(InSources::of(None, "2030-05-01"), InSources::NotNamed);
+        assert_eq!(InSources::of(Some(&here.join("no-such-sources-folder")), "2030-05-01"), InSources::Offline);
+        assert_eq!(InSources::of(Some(&here), "no-such-day-2030-05-01"), InSources::Missing);
+    }
+
+    #[test]
     fn a_place_needs_a_look_when_away_unset_or_nearly_full() {
         let p = |online, free| Place { kind: crate::settings::PlaceKind::Tmp, path: None, online, free };
         assert!(!place_trouble(&p(true, Some(200_000_000_000))) && !place_trouble(&p(true, None)));
@@ -301,9 +334,9 @@ mod tests {
         let t = &trips[0];
         assert_eq!((t.title.as_str(), t.clips()), ("2030-05_sea", 3));
         let d = &t.days[0];
-        assert_eq!((d.clips, d.rated, d.story, d.in_project, d.in_sources), (2, 1, true, 2, Some(true)));
+        assert_eq!((d.clips, d.rated, d.story, d.in_project, d.in_sources), (2, 1, true, 2, InSources::There));
         let d = &t.days[1];
-        assert_eq!((d.rated, d.story, d.in_project, d.in_sources), (0, false, 0, Some(false)));
+        assert_eq!((d.rated, d.story, d.in_project, d.in_sources), (0, false, 0, InSources::Missing));
         // The sheet wasn't written (no ids given).
         assert!(!std::fs::read_to_string(layout.sheet()).unwrap().contains("\"id\""));
         assert_eq!(
