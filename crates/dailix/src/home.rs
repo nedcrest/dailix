@@ -20,6 +20,8 @@ const CARD: f32 = 200.0;
 const TRIP_CARD: f32 = 320.0;
 /// An edit's card, two side by side in the question before a new one.
 const EDIT_CARD: f32 = 236.0;
+/// Between cards in a row.
+const CARDS_GAP: f32 = 14.0;
 
 fn gb(bytes: u64) -> String {
     format!("{:.0} GB", bytes as f64 / 1e9)
@@ -71,7 +73,7 @@ impl App {
     pub(super) fn choose_layer(&self) -> Element<'_, Message> {
         let Some(c) = &self.choosing else { return space().into() };
         let what = c.day.as_deref().unwrap_or("The trip");
-        let list = iced::widget::row(c.edits.iter().map(|(e, when)| self.edit_card(e, when))).spacing(14).wrap().vertical_spacing(14);
+        let list = iced::widget::row(c.edits.iter().map(|(e, when)| self.edit_card(e, when))).spacing(CARDS_GAP).wrap().vertical_spacing(CARDS_GAP);
         let new = if c.empty { "New empty edit" } else { "New from the marking" };
         let buttons = row![
             space().width(Length::Fill),
@@ -80,7 +82,10 @@ impl App {
         ]
         .spacing(8);
         let card = column![text(format!("{what} has edits already")).size(20), text("Open one, or make a new one.").size(13).style(text::secondary), list, buttons].spacing(12);
-        modal(container(card).padding(18).width(520).style(container::rounded_box), Message::ChooseCancel)
+        // Two edit cards side by side: they were 2 px too wide for the 520
+        // it had (the UI review, 2026-11-14).
+        let width = 2.0 * EDIT_CARD + CARDS_GAP + 2.0 * 18.0;
+        modal(container(card).padding(18).width(width).style(container::rounded_box), Message::ChooseCancel)
     }
 
     /// The home view's messages, and going to and from it: a project
