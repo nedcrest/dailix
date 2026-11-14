@@ -396,9 +396,9 @@ impl App {
         };
         let keys = iced::Subscription::batch([keys, grip]);
         let size = iced::window::resize_events().map(|(_, s)| Message::Resized(s));
-        // The player's frames, every screen frame while it plays or seeks.
         // A hovered card's tiles change, a screen frame at a time.
-        let size = if self.card_hover.is_some() { iced::Subscription::batch([size, iced::window::frames().map(|_| Message::CardTick)]) } else { size };
+        let size = if self.card_moving() { iced::Subscription::batch([size, iced::window::frames().map(|_| Message::CardTick)]) } else { size };
+        // The player's frames, every screen frame while it plays or seeks.
         if self.pane_busy() {
             iced::Subscription::batch([keys, size, iced::window::frames().map(|_| Message::Pane(pane::PaneMsg::Tick))])
         } else {

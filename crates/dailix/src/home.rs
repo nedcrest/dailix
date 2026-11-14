@@ -86,6 +86,7 @@ impl App {
     /// The home view's messages, and going to and from it: a project
     /// named, a day opened, an edit made for Omnix.
     pub(super) fn on_home(&mut self, message: Message) -> Task<Message> {
+        self.let_go_of_cards(&message);
         match message {
             Message::ToOmnix(root, day) => self.day_to_omnix(root, day, false),
             Message::EmptyDay(root, day) => self.day_to_omnix(root, day, true),
@@ -154,6 +155,22 @@ impl App {
             _ => {}
         }
         self.follow_edit_frames()
+    }
+
+    /// A page left or a question closed takes its cards with it, and a card
+    /// gone sends no Exit (iced's mouse_area): the hover goes with them.
+    fn let_go_of_cards(&mut self, message: &Message) {
+        if leaves_cards(message) {
+            self.card_hover = None;
+        }
+    }
+
+    /// Whether the hovered card's tiles change: it's on the page, and has
+    /// frames to change to (`omnix::cards::view::moves`).
+    pub(super) fn card_moving(&self) -> bool {
+        let Some((card, _)) = &self.card_hover else { return false };
+        let frames = self.trips.iter().find(|t| &t.root == card).map_or_else(|| self.edit_frames.get(card), |t| &t.frames);
+        omnix::cards::view::moves(frames.0.len())
     }
 
     /// The cards' messages: the pointer on a trip's or an edit's card, one
@@ -356,5 +373,23 @@ impl App {
         ]
         .spacing(6);
         container(column![open, actions].spacing(6).width(CARD)).padding(6).style(container::rounded_box).into()
+    }
+}
+
+/// Whether `message` leaves the page or closes the question its cards are
+/// on.
+fn leaves_cards(message: &Message) -> bool {
+    matches!(message, Message::Home | Message::OpenTrip(_) | Message::OpenDay(..) | Message::OpenEdit(_) | Message::ChooseNew | Message::ChooseCancel)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn leaving_a_page_or_a_question_lets_go_of_its_cards() {
+        let p = PathBuf::from("trip");
+        assert!(leaves_cards(&Message::OpenTrip(p.clone())) && leaves_cards(&Message::Home) && leaves_cards(&Message::ChooseCancel));
+        assert!(!leaves_cards(&Message::TripCard(p, omnix::cards::view::Event::Enter)) && !leaves_cards(&Message::CardTick));
     }
 }
