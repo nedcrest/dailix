@@ -91,6 +91,7 @@ impl App {
             Message::ToOmnix(root, day) => self.day_to_omnix(root, day, false),
             Message::EmptyDay(root, day) => self.day_to_omnix(root, day, true),
             m @ (Message::TripCard(..) | Message::EditCard(..) | Message::EditFrames(..) | Message::CardTick) => return self.on_card(m),
+            m @ (Message::AddVideos(_) | Message::VideosPicked(..) | Message::VideosAdded(_)) => return self.on_add(m),
             Message::ChooseNew => {
                 if let Some(c) = self.choosing.take() {
                     self.make_video(&c.root, c.day.as_deref(), c.empty);
@@ -190,6 +191,32 @@ impl App {
             _ => {}
         }
         self.follow_edit_frames()
+    }
+
+    /// Videos added to a trip: chosen in a file dialog, copied in off the
+    /// window's thread (`add::add`, whole files), the trip read again.
+    fn on_add(&mut self, message: Message) -> Task<Message> {
+        match message {
+            Message::AddVideos(root) => {
+                return Task::perform(
+                    async move {
+                        let files = rfd::AsyncFileDialog::new().set_title("Videos to add to the trip").add_filter("Videos", &["mp4", "MP4", "mov", "MOV", "mkv", "m4v"]).pick_files().await;
+                        (root, files.map(|fs| fs.iter().map(|f| f.path().to_owned()).collect()))
+                    },
+                    |(root, files)| Message::VideosPicked(root, files),
+                );
+            }
+            Message::VideosPicked(root, Some(files)) if !files.is_empty() => {
+                let picks: Vec<crate::add::Pick> = files.into_iter().map(|file| crate::add::Pick { file, span: None }).collect();
+                return Task::perform(super::blocking(move || crate::add::add(&root, &picks, None).map_err(|e| e.to_string())), Message::VideosAdded);
+            }
+            Message::VideosAdded(done) => {
+                self.error = done.err();
+                self.refresh_home();
+            }
+            _ => {}
+        }
+        Task::none()
     }
 
     /// The edits shown as cards (the open trip's, the ones offered before
@@ -393,6 +420,7 @@ impl App {
             text(format!("{dates} · {} days · {} clips", trip.days.len(), trip.clips())).size(13).style(text::secondary),
             all("→ Omnix (all days)", Message::ToOmnix(trip.root.clone(), None), "An edit of every day from its marking, opened in Omnix"),
             all("Empty edit", Message::EmptyDay(trip.root.clone(), None), "An empty edit in Omnix, every day's clips in its bin"),
+            all("+ Add videos…", Message::AddVideos(trip.root.clone()), "Videos copied into the trip, each under the day it was filmed (the originals stay as they are)"),
         ]
         .spacing(12)
         .align_y(Alignment::Center);

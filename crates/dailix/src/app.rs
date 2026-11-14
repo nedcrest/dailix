@@ -166,6 +166,11 @@ enum Message {
     /// it's there: its tiles change.
     TripCard(PathBuf, omnix::cards::view::Event),
     CardTick,
+    /// Videos added to a trip (gap 74a): the files chosen, then copied in
+    /// (what each became, or why not).
+    AddVideos(PathBuf),
+    VideosPicked(PathBuf, Option<Vec<PathBuf>>),
+    VideosAdded(Result<Vec<String>, String>),
     /// The pointer on an edit's card; its frames made (or why not).
     EditCard(PathBuf, omnix::cards::view::Event),
     EditFrames(PathBuf, Result<(), String>),
@@ -496,7 +501,7 @@ impl App {
                 self.width = s.width;
             }
             Message::Help => self.help = !self.help,
-            m @ (Message::ToOmnix(..) | Message::EmptyDay(..) | Message::Name(_) | Message::NameEdit(_) | Message::NameSave | Message::Home | Message::OpenDay(..) | Message::OpenTrip(_) | Message::TripCard(..) | Message::CardTick | Message::EditCard(..) | Message::EditFrames(..) | Message::AboutDescription(_) | Message::AboutTags(_) | Message::AboutSave | Message::OpenEdit(_) | Message::ChooseNew | Message::ChooseCancel) => return self.on_home(m),
+            m @ (Message::ToOmnix(..) | Message::EmptyDay(..) | Message::Name(_) | Message::NameEdit(_) | Message::NameSave | Message::Home | Message::OpenDay(..) | Message::OpenTrip(_) | Message::TripCard(..) | Message::CardTick | Message::EditCard(..) | Message::EditFrames(..) | Message::AddVideos(_) | Message::VideosPicked(..) | Message::VideosAdded(_) | Message::AboutDescription(_) | Message::AboutTags(_) | Message::AboutSave | Message::OpenEdit(_) | Message::ChooseNew | Message::ChooseCancel) => return self.on_home(m),
             m @ (Message::Settings | Message::SettingsGroup(_) | Message::ChoosePlace(_) | Message::PlaceChosen(..) | Message::CardMotion(_) | Message::UseDefaultPlaces) => return self.on_settings(m),
             m @ (Message::NewTrip | Message::NewTripTitle(_) | Message::NewTripFolder(_) | Message::NewTripDescription(_) | Message::NewTripTags(_) | Message::NewTripMake | Message::NewTripCancel) => return self.on_new_trip(m),
             m @ (Message::Grip | Message::Pointer(_) | Message::Release | Message::Placed(_) | Message::Scale(_)) => return self.on_layout(m),
