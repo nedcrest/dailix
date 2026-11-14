@@ -139,6 +139,11 @@ pub fn places(s: &Settings) -> Vec<Place> {
         .collect()
 }
 
+/// Whether a place needs a look: away, not set, or under 10 GB free.
+pub fn place_trouble(p: &Place) -> bool {
+    !p.online || p.free.is_some_and(|f| f < 10_000_000_000)
+}
+
 /// Where a place goes if the user takes the defaults: one `Dailix` folder in
 /// `home`, a folder for each place in it.
 pub fn default_place(kind: PlaceKind, home: &Path) -> PathBuf {
@@ -224,6 +229,13 @@ mod tests {
         let home = Path::new("/home/someone");
         assert_eq!(tilde(Path::new("/home/someone/Dailix/projects"), home), "~/Dailix/projects");
         assert_eq!(tilde(Path::new("/media/disk/trips"), home), "/media/disk/trips");
+    }
+
+    #[test]
+    fn a_place_needs_a_look_when_away_unset_or_nearly_full() {
+        let p = |online, free| Place { kind: crate::settings::PlaceKind::Tmp, path: None, online, free };
+        assert!(!place_trouble(&p(true, Some(200_000_000_000))) && !place_trouble(&p(true, None)));
+        assert!(place_trouble(&p(false, None)) && place_trouble(&p(true, Some(3_000_000_000))));
     }
 
     #[test]

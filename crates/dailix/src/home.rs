@@ -119,6 +119,12 @@ impl App {
             }
             Message::ChooseCancel => self.choosing = None,
             Message::Name(root) => {
+                // From a card's ⋯: the name is typed on the trip's page.
+                if self.trip_open.as_ref() != Some(&root) || !self.at_home {
+                    let open = self.on_home(Message::OpenTrip(root.clone()));
+                    self.at_home = true;
+                    return Task::batch([open, self.on_home(Message::Name(root))]);
+                }
                 let typed = dailix_sheet::project::title(&root);
                 self.naming = Some((root, typed));
                 return iced::widget::operation::focus(NAME);
@@ -363,12 +369,14 @@ impl App {
     }
 
     pub(super) fn home(&self) -> Element<'_, Message> {
-        // The welcome says what the chips would: they wait until it's done.
-        let welcome = matches!(library::first_run(&self.places, self.trips.len()), Some(library::FirstRun::Welcome));
-        let mut page = column![].push((!welcome).then(|| self.places_strip())).spacing(18).padding([8, 16]);
+        let first = library::first_run(&self.places, self.trips.len());
+        // The welcome says what the places line would: it waits until
+        // it's done.
+        let welcome = matches!(first, Some(library::FirstRun::Welcome));
+        let mut page = column![].spacing(18).padding([8, 16]);
         // Before any trip: the first run's welcome; else what's missing,
         // and a button to set it.
-        match library::first_run(&self.places, self.trips.len()) {
+        match first {
             Some(library::FirstRun::Welcome) => page = page.push(self.welcome()),
             Some(library::FirstRun::Say(said, choose)) => {
                 let choose = choose.map(|kind| ui::act(format!("Choose the {} folder…", kind.label()), ui::Kind::Primary).on_press(Message::ChoosePlace(kind)));
@@ -377,16 +385,23 @@ impl App {
             None => {}
         }
         match self.trip_open.as_ref().and_then(|r| self.trips.iter().find(|t| &t.root == r)) {
-            Some(trip) => page = page.push(rule::horizontal(1)).push(self.trip_page(trip)),
+            Some(trip) => page = page.push(self.trip_page(trip)),
             None => {
                 // A trip needs the projects place: none yet, the first run's
                 // button above chooses it.
+                // The page's one accent, by its heading (the UI review,
+                // step 8).
                 let place = self.places.iter().any(|p| p.kind == crate::settings::PlaceKind::Projects && p.online);
                 let new = place.then(|| super::tip(ui::act("+ New trip", ui::Kind::Primary).on_press(Message::NewTrip), text("A new trip in the Trips folder, in the fixed layout (Ctrl+N)"), tooltip::Position::Bottom));
-                page = page.push(new).push(iced::widget::row(self.trips.iter().map(|t| self.trip_card(t))).spacing(14).wrap().vertical_spacing(14));
+                let head = row![text("Trips").size(22), space().width(Length::Fill)].push(new).align_y(Alignment::Center);
+                let cards = iced::widget::row(self.trips.iter().map(|t| self.trip_card_with_menu(t))).spacing(14).wrap().vertical_spacing(14);
+                page = page.push((!welcome).then_some(head)).push(cards);
             }
         }
-        scrollable(page).height(Length::Fill).into()
+        // The places as a quiet line at the bottom, where status goes;
+        // on the trips' page only, and not before the welcome is done.
+        let footer = (!welcome && self.trip_open.is_none()).then(|| column![rule::horizontal(1), container(self.places_strip()).padding([6, 16])]);
+        column![scrollable(page).height(Length::Fill)].push(footer).into()
     }
 
     /// A first run's welcome (the user, 2026-11-14; the GNOME and Windows
@@ -459,19 +474,21 @@ impl App {
                 (false, _) => format!("○ {} · offline", p.kind.label()),
             };
             let path = p.path.as_ref().map(|p| p.display().to_string()).unwrap_or_default();
-            let online = p.online;
-            let chip = container(text(state).size(13)).padding([4, 10]).style(move |t: &Theme| {
-                let mut s = container::rounded_box(t);
-                if !online {
-                    s.text_color = Some(t.extended_palette().background.strong.text);
-                }
-                s
-            });
+            // Quiet while all's well; red when away, not set, or nearly
+            // full (under 10 GB): status, louder only when it matters.
+            let trouble = library::place_trouble(p);
+            let chip = text(state).size(12).style(move |t: &Theme| text::Style { color: Some(if trouble { t.extended_palette().danger.base.color } else { t.extended_palette().background.strong.color }) });
             // A click chooses its folder (user, 2026-11-07), as Settings does.
             let hint = if path.is_empty() { format!("Choose the {} folder", p.kind.label()) } else { format!("{path}\nClick to choose another folder") };
-            super::tip(button(chip).padding(0).style(button::text).on_press(Message::ChoosePlace(p.kind)), text(hint), tooltip::Position::Bottom)
+            super::tip(button(chip).padding([2, 6]).style(button::text).on_press(Message::ChoosePlace(p.kind)), text(hint), tooltip::Position::Top)
         };
-        row(self.places.iter().map(chip)).spacing(8).align_y(Alignment::Center).into()
+        row(self.places.iter().map(chip)).spacing(14).align_y(Alignment::Center).into()
+    }
+
+    /// A trip's card and its ⋯ (open, add videos, rename, show, delete).
+    fn trip_card_with_menu<'a>(&'a self, trip: &'a Trip) -> Element<'a, Message> {
+        let more = row![space().width(Length::Fill), super::menu::opener("⋯", super::menu::Menu::Trip(trip.root.clone()), ui::Kind::Quiet, false)];
+        column![self.trip_card(trip), more].spacing(2).width(TRIP_CARD + 12.0).into()
     }
 
     /// A trip as a card on the home view; a click opens its page.
