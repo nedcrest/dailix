@@ -66,6 +66,10 @@ struct App {
     settings: Settings,
     project: Option<Project>,
     error: Option<String>,
+    /// What a job under way is doing, or what one did: a quiet line under
+    /// the bar, apart from the errors (adding videos said nothing; the UI
+    /// review, 2026-11-14).
+    notice: Option<String>,
     /// Posters being made, so each is made once.
     making: HashSet<PathBuf>,
     /// Voices being made: (clip, recipe). Kept here, not in the pane: the
@@ -305,7 +309,7 @@ impl App {
             Start::NewTrip => (None, true),
         };
         let settings = Settings::load();
-        let mut app = App { project: None, error: None, making: HashSet::new(), voice_makes: HashSet::new(), drafts: HashMap::new(), dirty: HashSet::new(), selected: None, pane: pane::Pane::default(), height: 920.0, scale: settings.scale.unwrap_or(1.0), width: 1500.0, pane_share: settings.pane_share.unwrap_or(pane::SHARE), grip: None, help: false, settings_open: None, at_home: true, card_hover: None, edit_frames: Default::default(), trips: Vec::new(), places: Vec::new(), naming: None, choosing: None, deleting: None, trip_open: None, about: Default::default(), new_trip: None, settings };
+        let mut app = App { project: None, error: None, notice: None, making: HashSet::new(), voice_makes: HashSet::new(), drafts: HashMap::new(), dirty: HashSet::new(), selected: None, pane: pane::Pane::default(), height: 920.0, scale: settings.scale.unwrap_or(1.0), width: 1500.0, pane_share: settings.pane_share.unwrap_or(pane::SHARE), grip: None, help: false, settings_open: None, at_home: true, card_hover: None, edit_frames: Default::default(), trips: Vec::new(), places: Vec::new(), naming: None, choosing: None, deleting: None, trip_open: None, about: Default::default(), new_trip: None, settings };
         // A project named opens; else where the window was left (home on
         // the first run, or when it was left there).
         app.refresh_home();
@@ -769,6 +773,9 @@ impl App {
         let mut page = column![container(top).padding([10, 16])];
         if let Some(e) = &self.error {
             page = page.push(container(text(e.clone()).size(13).style(text::danger)).padding([0, 16]));
+        }
+        if let Some(n) = &self.notice {
+            page = page.push(container(text(n.clone()).size(13).style(text::secondary)).padding([0, 16]));
         }
         if self.at_home {
             return page.push(self.home()).into();

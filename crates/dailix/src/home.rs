@@ -124,6 +124,7 @@ impl App {
             }
             Message::Home => {
                 self.save_typed();
+                self.notice = None;
                 self.pane = pane::Pane::default();
                 self.selected = None;
                 self.at_home = true;
@@ -212,10 +213,12 @@ impl App {
                 );
             }
             Message::VideosPicked(root, Some(files)) if !files.is_empty() => {
+                self.notice = Some(format!("Adding {} to «{}»…", library::count(files.len(), "video"), dailix_sheet::project::title(&root)));
                 let picks: Vec<crate::add::Pick> = files.into_iter().map(|file| crate::add::Pick { file, span: None }).collect();
                 return Task::perform(super::blocking(move || crate::add::add(&root, &picks, None).map_err(|e| e.to_string())), Message::VideosAdded);
             }
             Message::VideosAdded(done) => {
+                self.notice = done.as_ref().ok().map(|said| crate::add::summary(said));
                 self.error = done.err();
                 self.refresh_home();
             }

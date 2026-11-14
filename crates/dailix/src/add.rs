@@ -138,6 +138,20 @@ pub fn add(root: &Path, picks: &[Pick], day: Option<&str>) -> Result<Vec<String>
     Ok(said)
 }
 
+/// What `add` said, in a line: how many went in and under which days,
+/// how many were there already.
+pub fn summary(said: &[String]) -> String {
+    let added: Vec<&String> = said.iter().filter(|l| l.ends_with(" added")).collect();
+    let mut days: Vec<&str> = added.iter().filter_map(|l| l.split('/').next()).collect();
+    days.dedup();
+    let there = said.len() - added.len();
+    let mut line = if added.is_empty() { "Nothing new added".to_owned() } else { format!("{} added: {}", crate::library::count(added.len(), "video"), days.join(", ")) };
+    if there > 0 {
+        line += &format!("; {} there already", crate::library::count(there, "video"));
+    }
+    line + "."
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -150,6 +164,13 @@ mod tests {
         assert_eq!(parse_pick("x.mp4@1:00:00-1:00:10").unwrap().span, Some((3600.0, 3610.0)));
         assert!(parse_pick("x.mp4@0:20-0:05").is_err() && parse_pick("x.mp4@soon").is_err());
         assert_eq!(parse_pick("plain.mp4").unwrap().span, None);
+    }
+
+    #[test]
+    fn what_was_added_is_said_in_a_line() {
+        let said = ["2026-08-18/a.mp4: 9.0 s added", "2026-08-22/b.MP4: 15.0 s added", "2026-08-22/c.MP4: 5.0 s added", "2026-08-23/d.MP4: there already, left as it is"].map(String::from);
+        assert_eq!(summary(&said), "3 videos added: 2026-08-18, 2026-08-22; 1 video there already.");
+        assert_eq!(summary(&said[3..]), "Nothing new added; 1 video there already.");
     }
 
     #[test]
