@@ -46,21 +46,17 @@ fn changed(edit: &Path) -> String {
     std::fs::metadata(edit).and_then(|m| m.modified()).map(|t| chrono::DateTime::<chrono::Local>::from(t).format("%d.%m.%Y %H:%M").to_string()).unwrap_or_default()
 }
 
-/// A day's «→ Omnix» and «Empty edit» (the trip's, no `day`), `small` on
-/// a card: one pair, worded once, wherever it shows (the day card, the
-/// sheet's day heading, the trip's page).
-pub(super) fn to_omnix<'a>(root: &Path, day: Option<&str>, small: bool) -> [Element<'a, Message>; 2] {
-    let (go, empty) = match day {
-        Some(_) => ("An edit of this day from its marking, opened in Omnix", "An empty edit of this day in Omnix, its clips in the bin"),
-        None => ("An edit of every day from its marking, opened in Omnix", "An empty edit in Omnix, every day's clips in its bin"),
-    };
-    let label = if day.is_some() { "→ Omnix" } else { "→ Omnix (all days)" };
-    let one = |label: &'static str, msg: Message, hint: &'static str| {
-        let b = if small { ui::small(label, ui::Kind::Secondary) } else { ui::act(label, ui::Kind::Secondary) };
-        super::tip(b.on_press(msg), text(hint), tooltip::Position::Bottom)
-    };
-    let day = day.map(str::to_owned);
-    [one(label, Message::ToOmnix(root.to_path_buf(), day.clone()), go), one("Empty edit", Message::EmptyDay(root.to_path_buf(), day), empty)]
+/// A day's «→ Omnix ▾» (the trip's, no `day`), `small` on a card: one
+/// split button, worded once, wherever it shows (the day card, the sheet's
+/// day heading, the trip's page; the UI review, step 5). The click makes
+/// an edit from the marking; ▾ holds the empty edit and, for the trip, a
+/// day at a time.
+pub(super) fn to_omnix<'a>(root: &Path, day: Option<&str>, small: bool) -> Element<'a, Message> {
+    let hint = if day.is_some() { "An edit of this day from its marking, opened in Omnix" } else { "An edit of every day from its marking, opened in Omnix" };
+    let go = if small { ui::small("→ Omnix", ui::Kind::Secondary) } else { ui::act("→ Omnix", ui::Kind::Secondary) };
+    let go = super::tip(go.on_press(Message::ToOmnix(root.to_path_buf(), day.map(str::to_owned))), text(hint), tooltip::Position::Bottom);
+    let more = super::tip(super::menu::opener("▾", super::menu::Menu::Omnix(root.to_path_buf(), day.map(str::to_owned)), ui::Kind::Secondary, small), text("An empty edit, or one day only"), tooltip::Position::Bottom);
+    row![go, more].spacing(1).into()
 }
 
 impl App {
@@ -504,36 +500,33 @@ impl App {
         let dates = trip.dates();
         // The whole project into Omnix (user, 2026-11-05: an empty edit
         // with every day in the bin, not one day's).
-        let all = |label: &'static str, msg: Message, hint: &'static str| super::tip(ui::act(label, ui::Kind::Secondary).on_press(msg), text(hint), tooltip::Position::Bottom);
         let name: Element<'a, Message> = match &self.naming {
             Some((root, typed)) if *root == trip.root => text_input("the folder's name", typed).id(NAME).size(18).width(320).on_input(Message::NameEdit).on_submit(Message::NameSave).into(),
             _ => super::tip(button(text(trip.title.clone()).size(18)).padding(0).style(button::text).on_press(Message::Name(trip.root.clone())), text("Rename (the folder keeps its name)"), tooltip::Position::Bottom),
         };
-        let [go, empty] = to_omnix(&trip.root, None, false);
-        let head = row![
-            name,
-            text(format!("{dates} · {} · {}", library::count(trip.days.len(), "day"), library::count(trip.clips(), "clip"))).size(13).style(text::secondary),
-            go,
-            empty,
-            all("+ Add videos…", Message::AddVideos(trip.root.clone()), "Videos copied into the trip, each under the day it was filmed (the originals stay as they are)"),
-            super::tip(ui::act("Delete trip…", ui::Kind::Danger).on_press(Message::DeleteAsk(crate::delete::Doomed::Trip(trip.root.clone()))), text("To the system's trash, after a question; the originals in the sources stay"), tooltip::Position::Bottom),
-        ]
-        .spacing(12)
-        .align_y(Alignment::Center);
+        // The page's actions at its top right: into Omnix, the sheet, and
+        // the rest (deleting among them, last and apart) under ⋯; no red
+        // button on the page (the UI review, step 5).
+        let sheet = trip.days.first().map(|d| super::tip(ui::act("Open the sheet", ui::Kind::Secondary).on_press(Message::OpenDay(trip.root.clone(), d.day.clone())), text("Every day's clips, to rate and mark"), tooltip::Position::Bottom));
+        let more = super::tip(super::menu::opener("⋯", super::menu::Menu::Trip(trip.root.clone()), ui::Kind::Secondary, false), text("Add videos, rename, show the folder, delete"), tooltip::Position::Bottom);
+        let rated: usize = trip.days.iter().map(|d| d.rated).sum();
+        let facts = format!("{dates} · {} · {} · {rated} rated", library::count(trip.days.len(), "day"), library::count(trip.clips(), "clip"));
+        let head = row![column![name, text(facts).size(13).style(text::secondary)].spacing(2), space().width(Length::Fill), to_omnix(&trip.root, None, false)].push(sheet).push(more).spacing(10).align_y(Alignment::Center);
+        let field = |label: &'static str, input: Element<'a, Message>| row![text(label).size(13).style(text::secondary).width(96), input].spacing(8).align_y(Alignment::Center);
         let about = column![
-            text_input("A description: what this trip was", &self.about.0).size(14).on_input(Message::AboutDescription).on_submit(Message::AboutSave),
-            text_input("Tags, comma-separated", &self.about.1).size(13).on_input(Message::AboutTags).on_submit(Message::AboutSave),
+            field("Description", text_input("what this trip was", &self.about.0).size(14).on_input(Message::AboutDescription).on_submit(Message::AboutSave).into()),
+            field("Tags", text_input("comma-separated", &self.about.1).size(13).on_input(Message::AboutTags).on_submit(Message::AboutSave).into()),
         ]
         .spacing(6)
-        .max_width(760);
+        .max_width(860);
         let mut edits = column![text("Edits").size(15)].spacing(4);
         if trip.edits.is_empty() {
-            edits = edits.push(text("None yet: → Omnix or Empty edit make one.").size(12).style(text::secondary));
+            edits = edits.push(text("None yet: → Omnix makes one from the marking (▾: an empty one).").size(12).style(text::secondary));
         }
-        // Each card with its way to the trash under it (a click on the card
-        // opens it).
-        let trash = |e: &PathBuf| ui::act("Move to trash…", ui::Kind::Danger).on_press(Message::DeleteAsk(crate::delete::Doomed::Edit(e.clone())));
-        edits = edits.push(iced::widget::row(trip.edits.iter().map(|e| column![self.edit_card(e, ""), trash(e)].spacing(2).into())).spacing(14).wrap().vertical_spacing(14));
+        // A click on the card opens it; its ⋯ under it holds the rest, the
+        // trash last (a red button under every card was too loud).
+        let more = |e: &PathBuf| row![space().width(Length::Fill), super::menu::opener("⋯", super::menu::Menu::Edit(e.clone()), ui::Kind::Quiet, true)];
+        edits = edits.push(iced::widget::row(trip.edits.iter().map(|e| column![self.edit_card(e, ""), more(e)].spacing(2).width(EDIT_CARD).into())).spacing(14).wrap().vertical_spacing(14));
         let cards = iced::widget::row(trip.days.iter().map(|d| self.day_card(trip, d))).spacing(10).wrap().vertical_spacing(10);
         column![head, about, edits, text("Days").size(15), cards].spacing(12).into()
     }
@@ -562,7 +555,7 @@ impl App {
         .width(CARD);
         let open = button(column![poster, info].spacing(6)).padding(0).style(button::text).on_press(Message::OpenDay(trip.root.clone(), d.day.clone()));
         // The day straight into Omnix: its edit from the marking, or empty.
-        let actions = iced::widget::Row::with_children(to_omnix(&trip.root, Some(&d.day), true)).spacing(6);
+        let actions = to_omnix(&trip.root, Some(&d.day), true);
         container(column![open, actions].spacing(6).width(CARD)).padding(6).style(container::rounded_box).into()
     }
 }

@@ -144,14 +144,17 @@ impl App {
                 }
                 e
             }
-            Menu::Trip(root) => vec![
-                act("Open", "", Message::OpenTrip(root.clone())),
+            Menu::Trip(root) => {
+                // «Open» on its card, not on its page.
+                let open = (self.trip_open.as_ref() != Some(root) || !self.at_home).then(|| act("Open", "", Message::OpenTrip(root.clone())));
+                open.into_iter().chain([
                 act("Add videos…", "", Message::AddVideos(root.clone())),
                 act("Rename", "", Message::Name(root.clone())),
                 act("Show in the file manager", "", Message::ShowFolder(root.clone())),
                 Entry::Rule,
                 Entry::Act { label: "Delete trip…".into(), key: "", msg: Message::DeleteAsk(crate::delete::Doomed::Trip(root.clone())), danger: true },
-            ],
+                ]).collect()
+            }
             Menu::Edit(edit) => vec![
                 act("Open in Omnix", "", Message::OpenEdit(edit.clone())),
                 act("Show in the file manager", "", Message::ShowFolder(edit.clone())),
@@ -170,7 +173,12 @@ impl App {
                 Entry::Act { label, key, msg, danger } => {
                     let words = row![text(label).size(14).width(Length::Fill)].push((!key.is_empty()).then(|| text(key).size(12).style(text::secondary))).spacing(12);
                     let b = button(words).width(Length::Fill).padding([5, 10]).style(button::text).on_press(Message::MenuDo(Box::new(msg)));
-                    if danger { b.style(button::danger).into() } else { b.into() }
+                    // Red words, not a red block: last and apart is enough.
+                    if danger {
+                        b.style(|t: &iced::Theme, st| button::Style { text_color: t.extended_palette().danger.base.color, ..button::text(t, st) }).into()
+                    } else {
+                        b.into()
+                    }
                 }
             }
         };

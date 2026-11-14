@@ -108,8 +108,7 @@ impl App {
     /// A day: its date, how far it's rated, its story, its clips shown.
     pub(super) fn day<'a>(&'a self, p: &'a Project, day: &'a footage::Day) -> Element<'a, Message> {
         let rated = day.clips.iter().filter(|c| Self::rating_of(p, &c.key).is_some()).count();
-        let [to_omnix, empty] = home::to_omnix(&p.footage.layout.root, Some(&day.day), false);
-        let head = row![text(day.day.clone()).size(18), text(format!("{} · {rated} rated", crate::library::count(day.clips.len(), "clip"))).size(13).style(text::secondary), to_omnix, empty].spacing(12).align_y(Alignment::Center);
+        let head = row![text(day.day.clone()).size(18), text(format!("{} · {rated} rated", crate::library::count(day.clips.len(), "clip"))).size(13).style(text::secondary), home::to_omnix(&p.footage.layout.root, Some(&day.day), false)].spacing(12).align_y(Alignment::Center);
         let story: Element<'a, Message> = match self.drafts.get(&day.day) {
             Some(content) => {
                 let d = day.day.clone();
