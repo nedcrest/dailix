@@ -14,6 +14,8 @@ mod bar;
 mod home;
 #[path = "menu.rs"]
 mod menu;
+#[path = "sheet_view.rs"]
+mod sheet_view;
 #[path = "settings_window.rs"]
 mod settings_window;
 #[path = "new_trip.rs"]
@@ -22,8 +24,8 @@ mod new_trip;
 use crate::ui;
 use dailix_sheet::footage::{self, Footage};
 use crate::settings::Settings;
-use dailix_sheet::{ClipOp, DayOp, Layout, MarkKind, Op, Rating, Sheet, Store};
-use iced::widget::{column, container, image, row, rule, scrollable, space, text, text_editor, tooltip};
+use dailix_sheet::{ClipOp, DayOp, Layout, Op, Rating, Sheet, Store};
+use iced::widget::{column, container, row, rule, scrollable, space, text, text_editor, tooltip};
 use iced::{Alignment, Element, Length, Task, Theme};
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
@@ -137,6 +139,9 @@ struct App {
     adding: HashSet<PathBuf>,
     /// A close refused once for a story not saved: the next one closes.
     close_anyway: bool,
+    /// Which tiles the sheet shows; the tile under the pointer.
+    filter: sheet_view::Filter,
+    tile_hover: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -249,6 +254,9 @@ enum Message {
     About,
     /// A trip's or an edit's folder shown in the file manager.
     ShowFolder(PathBuf),
+    /// The sheet's filter chosen; the pointer onto (true) or off a tile.
+    Filter(sheet_view::Filter),
+    TileHover(String, bool),
 }
 
 /// The tiles' list: its id, for scrolling it.
@@ -334,7 +342,7 @@ impl App {
             Start::NewTrip => (None, true),
         };
         let settings = Settings::load();
-        let mut app = App { project: None, error: None, notice: None, making: HashSet::new(), voice_makes: HashSet::new(), drafts: HashMap::new(), dirty: HashSet::new(), selected: None, pane: pane::Pane::default(), height: 920.0, scale: settings.scale.unwrap_or(1.0), width: 1500.0, pane_share: settings.pane_share.unwrap_or(pane::SHARE), grip: None, help: false, settings_open: None, at_home: true, card_hover: None, edit_frames: Default::default(), trips: Vec::new(), places: Vec::new(), naming: None, choosing: None, deleting: None, trip_open: None, about: Default::default(), new_trip: None, menu: None, about_open: false, adding: HashSet::new(), close_anyway: false, settings };
+        let mut app = App { project: None, error: None, notice: None, making: HashSet::new(), voice_makes: HashSet::new(), drafts: HashMap::new(), dirty: HashSet::new(), selected: None, pane: pane::Pane::default(), height: 920.0, scale: settings.scale.unwrap_or(1.0), width: 1500.0, pane_share: settings.pane_share.unwrap_or(pane::SHARE), grip: None, help: false, settings_open: None, at_home: true, card_hover: None, edit_frames: Default::default(), trips: Vec::new(), places: Vec::new(), naming: None, choosing: None, deleting: None, trip_open: None, about: Default::default(), new_trip: None, menu: None, about_open: false, adding: HashSet::new(), close_anyway: false, filter: Default::default(), tile_hover: None, settings };
         // A project named opens; else where the window was left (home on
         // the first run, or when it was left there).
         app.refresh_home();
@@ -492,16 +500,12 @@ impl App {
     /// Picks the clip `by` places from the one picked (the first if none),
     /// and brings it into view.
     fn step(&mut self, by: isize) -> Task<Message> {
-        let order = self.order();
-        if order.is_empty() {
-            return Task::none();
+        let Some(p) = &self.project else { return Task::none() };
+        let shown = |k: &str| self.filter.shows(Self::rating_of(p, k));
+        match sheet_view::step_from(&self.order(), shown, self.selected.as_deref(), by) {
+            Some(next) => self.select(next),
+            None => Task::none(),
         }
-        let at = self.selected.as_ref().and_then(|s| order.iter().position(|k| k == s));
-        let next = match at {
-            Some(i) => (i as isize + by).clamp(0, order.len() as isize - 1) as usize,
-            None => 0,
-        };
-        self.select(order[next].clone())
     }
 
     /// Picks `key` and asks where its tile is, to scroll to it.
@@ -572,6 +576,17 @@ impl App {
             Message::Help => self.help = !self.help,
             Message::About => self.about_open = !self.about_open,
             Message::ShowFolder(p) => self.error = crate::editor::show(&p).err(),
+            Message::Filter(f) => {
+                self.filter = f;
+                // The picked clip hidden: the first one shown instead.
+                return self.step(0);
+            }
+            Message::TileHover(key, true) => self.tile_hover = Some(key),
+            Message::TileHover(key, false) => {
+                if self.tile_hover.as_ref() == Some(&key) {
+                    self.tile_hover = None;
+                }
+            }
             Message::Back => return self.back(),
             m @ (Message::Menu(_) | Message::MenuAt(_) | Message::MenuDo(_)) => return self.on_menu(m),
             m @ (Message::ToOmnix(..) | Message::EmptyDay(..) | Message::Name(_) | Message::NameEdit(_) | Message::NameSave | Message::Home | Message::OpenDay(..) | Message::OpenTrip(_) | Message::TripCard(..) | Message::CardTick | Message::EditCard(..) | Message::EditFrames(..) | Message::AddVideos(_) | Message::VideosPicked(..) | Message::VideosAdded(..) | Message::DeleteAsk(_) | Message::DeleteCounted(..) | Message::DeleteCancel | Message::DeleteConfirm | Message::Deleted(..) | Message::AboutDescription(_) | Message::AboutTags(_) | Message::AboutSave | Message::OpenEdit(_) | Message::ChooseNew | Message::ChooseCancel) => return self.on_home(m),
@@ -811,7 +826,7 @@ impl App {
         for day in &p.footage.days {
             days = days.push(rule::horizontal(1)).push(self.day(p, day));
         }
-        let list = scrollable(days).id(LIST).height(Length::Fill).width(Length::Fill);
+        let list = column![container(self.filter_bar(p)).padding([4, 16]), scrollable(days).id(LIST).height(Length::Fill).width(Length::Fill)];
         match self.pane() {
             Some(pane) => {
                 let grip = iced::widget::mouse_area(container(rule::vertical(2)).width(8).height(Length::Fill).center_x(8)).on_press(Message::Grip).interaction(iced::mouse::Interaction::ResizingHorizontally);
@@ -819,73 +834,6 @@ impl App {
             }
             None => page.push(list).into(),
         }
-    }
-
-    /// A day: its date, how far it's rated, its story, its clips.
-    fn day<'a>(&'a self, p: &'a Project, day: &'a footage::Day) -> Element<'a, Message> {
-        let rated = day.clips.iter().filter(|c| p.sheet.clips.get(&c.key).is_some_and(|s| s.rating.is_some())).count();
-        let [to_omnix, empty] = home::to_omnix(&p.footage.layout.root, Some(&day.day), false);
-        let head = row![text(day.day.clone()).size(18), text(format!("{} · {rated} rated", crate::library::count(day.clips.len(), "clip"))).size(13).style(text::secondary), to_omnix, empty].spacing(12).align_y(Alignment::Center);
-        let story: Element<'a, Message> = match self.drafts.get(&day.day) {
-            Some(content) => {
-                let d = day.day.clone();
-                let editor = text_editor(content).placeholder("the day's story").size(14).height(Length::Shrink).on_action(move |a| Message::DayEdit(d.clone(), a));
-                let save = self.dirty.contains(&day.day).then(|| ui::act("Save", ui::Kind::Secondary).on_press(Message::DaySave(day.day.clone())));
-                row![editor].push(save).spacing(8).align_y(Alignment::Start).into()
-            }
-            None => space().into(),
-        };
-        let tiles = iced::widget::row(day.clips.iter().map(|c| self.tile(p, c))).spacing(10).wrap().vertical_spacing(10);
-        column![head, story, tiles].spacing(10).into()
-    }
-
-    /// A clip as a tile.
-    fn tile<'a>(&'a self, p: &'a Project, c: &'a footage::Clip) -> Element<'a, Message> {
-        let h = (TILE * 9.0 / 16.0).round();
-        let poster: Element<'a, Message> = if c.poster.is_file() && !self.making.contains(&c.poster) {
-            image(image::Handle::from_path(&c.poster)).width(TILE).height(h).into()
-        } else {
-            container(text(if c.path.is_file() { "…" } else { "missing" }).size(14)).width(TILE).height(h).center_x(TILE).center_y(h).style(container::rounded_box).into()
-        };
-        let mark = p.sheet.clips.get(&c.key);
-        let rating = mark.and_then(|m| m.rating).map(rating_value);
-        let rate = |r: u8, label: &'static str, hint: &'static str| -> Element<'a, Message> {
-            let on = rating == Some(r);
-            tip(
-                ui::small(label, if on { ui::Kind::Primary } else { ui::Kind::Secondary }).on_press(Message::Rate(c.key.clone(), Some(r))),
-                text(hint),
-                tooltip::Position::Top,
-            )
-        };
-        let segments = mark.map_or(0, |m| m.marks.iter().filter(|x| x.kind != MarkKind::Flag).count());
-        let flags = mark.map_or(0, |m| m.marks.iter().filter(|x| x.kind == MarkKind::Flag).count());
-        let count = |n: usize, one: &str| if n == 1 { format!("1 {one}") } else { format!("{n} {one}s") };
-        let counts = match (segments, flags) {
-            (0, 0) => String::new(),
-            (s, 0) => count(s, "segment"),
-            (0, f) => count(f, "flag"),
-            (s, f) => format!("{} · {}", count(s, "segment"), count(f, "flag")),
-        };
-        let name = c.file.clone();
-        let note = mark.map(|m| m.note.clone()).unwrap_or_default();
-        let info = column![
-            text(name).size(12).wrapping(text::Wrapping::None),
-            row![text(dailix_sheet::clock(c.duration, 0)).size(12).style(text::secondary), space().width(Length::Fill), rate(2, "✓", "Take"), rate(1, "?", "Think about it"), rate(0, "✕", "Junk")].spacing(4).align_y(Alignment::Center),
-            text(counts).size(12).style(text::secondary),
-            text(note).size(12),
-        ]
-        .spacing(4)
-        .width(TILE)
-        .clip(true);
-        let picked = self.selected.as_deref() == Some(c.key.as_str());
-        let tile = container(column![poster, info].spacing(6)).padding(6).id(c.key.clone()).style(move |t: &Theme| {
-            let mut s = container::rounded_box(t);
-            if picked {
-                s.border = iced::Border { color: t.extended_palette().primary.strong.color, width: 2.0, radius: s.border.radius };
-            }
-            s
-        });
-        iced::widget::mouse_area(tile).on_press(Message::Select(c.key.clone())).into()
     }
 }
 
