@@ -292,6 +292,12 @@ impl App {
     fn on_delete(&mut self, message: Message) -> Task<Message> {
         use crate::delete::{Size, size};
         match message {
+            // Not while videos are copied into it or an edit of it is
+            // made: they'd make its folder again in the trash's wake
+            // (the audit, 2026-11-14).
+            Message::DeleteAsk(crate::delete::Doomed::Trip(root)) if self.adding.contains(&root) || self.making_edits.iter().any(|(r, _)| *r == root) => {
+                self.notice = Some("Wait till what's being added to this trip, or made of it, is done.".into());
+            }
             Message::DeleteAsk(doomed) => {
                 self.deleting = Some((doomed.clone(), None));
                 let folders = doomed.folders();
