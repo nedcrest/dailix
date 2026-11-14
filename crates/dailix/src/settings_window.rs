@@ -33,6 +33,12 @@ impl App {
         match message {
             Message::Settings => self.settings_open = if self.settings_open.is_some() { None } else { Some(Group::Places) },
             Message::SettingsGroup(g) => self.settings_open = Some(g),
+            Message::CardMotion(on) => {
+                self.settings.card_motion = Some(on);
+                if let Err(e) = self.settings.save() {
+                    self.error = Some(format!("The settings couldn't be saved: {e}"));
+                }
+            }
             Message::ChoosePlace(kind) => {
                 let start = self.settings.place(kind);
                 return Task::perform(
@@ -111,6 +117,9 @@ impl App {
             text("Text size").size(16),
             row![size("A−", -1), text(format!("{:.0}%", self.scale * 100.0)).size(14), size("A+", 1), size("100%", 0)].spacing(8).align_y(Alignment::Center),
             text("Ctrl+− and Ctrl+= do it from anywhere.").size(13).style(text::secondary),
+            text("Cards").size(16),
+            iced::widget::toggler(self.settings.card_motion()).label("Animate the cards").on_toggle(Message::CardMotion),
+            text("Off: a hovered card lights up, its pictures stay still.").size(13).style(text::secondary),
         ]
         .spacing(8)
         .into()

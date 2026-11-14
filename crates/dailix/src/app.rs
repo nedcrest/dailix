@@ -128,6 +128,8 @@ enum Message {
     /// A place's folder chosen (a folder dialog), from the Settings window
     /// or its chip on the home view; what was chosen.
     ChoosePlace(crate::settings::PlaceKind),
+    /// The setting: a hovered card's tiles change by themselves.
+    CardMotion(bool),
     PlaceChosen(crate::settings::PlaceKind, Option<PathBuf>),
     /// A clip rated (none: unrated again).
     Rate(String, Option<u8>),
@@ -493,7 +495,7 @@ impl App {
             }
             Message::Help => self.help = !self.help,
             m @ (Message::ToOmnix(..) | Message::EmptyDay(..) | Message::Name(_) | Message::NameEdit(_) | Message::NameSave | Message::Home | Message::OpenDay(..) | Message::OpenTrip(_) | Message::TripCard(..) | Message::CardTick | Message::EditCard(..) | Message::EditFrames(..) | Message::AboutDescription(_) | Message::AboutTags(_) | Message::AboutSave | Message::OpenEdit(_) | Message::ChooseNew | Message::ChooseCancel) => return self.on_home(m),
-            m @ (Message::Settings | Message::SettingsGroup(_) | Message::ChoosePlace(_) | Message::PlaceChosen(..)) => return self.on_settings(m),
+            m @ (Message::Settings | Message::SettingsGroup(_) | Message::ChoosePlace(_) | Message::PlaceChosen(..) | Message::CardMotion(_)) => return self.on_settings(m),
             m @ (Message::NewTrip | Message::NewTripTitle(_) | Message::NewTripFolder(_) | Message::NewTripDescription(_) | Message::NewTripTags(_) | Message::NewTripMake | Message::NewTripCancel) => return self.on_new_trip(m),
             m @ (Message::Grip | Message::Pointer(_) | Message::Release | Message::Placed(_) | Message::Scale(_)) => return self.on_layout(m),
             Message::Key(key, physical, mods, taken) => return self.on_key(key, physical, mods, taken),

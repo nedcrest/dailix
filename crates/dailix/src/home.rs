@@ -168,7 +168,7 @@ impl App {
     /// Whether the hovered card's tiles change: it's on the page, and has
     /// frames to change to (`omnix::cards::view::moves`).
     pub(super) fn card_moving(&self) -> bool {
-        let Some((card, _)) = &self.card_hover else { return false };
+        let Some((card, _)) = self.card_hover.as_ref().filter(|_| self.settings.card_motion()) else { return false };
         let frames = self.trips.iter().find(|t| &t.root == card).map_or_else(|| self.edit_frames.get(card), |t| &t.frames);
         omnix::cards::view::moves(frames.0.len())
     }
@@ -210,7 +210,7 @@ impl App {
 
     /// Edit `edit` as a small card: its frames, its name and `note`.
     fn edit_card<'a>(&'a self, edit: &'a Path, note: &str) -> Element<'a, Message> {
-        let hovered = self.card_hover.as_ref().filter(|(e, _)| e == edit).map(|(_, since)| Some(since.elapsed()));
+        let hovered = self.card_hover.as_ref().filter(|(e, _)| e == edit).map(|(_, since)| self.settings.card_motion().then(|| since.elapsed()));
         let note = if self.edit_frames.making(edit) { "making its frames…" } else { note };
         let info = column![text(dailix_sheet::project::edit_name(edit)).size(14)].push((!note.is_empty()).then(|| text(note.to_owned()).size(12).style(text::secondary))).spacing(2);
         let to = edit.to_owned();
@@ -302,7 +302,7 @@ impl App {
         }
         // Omnix's project card (gap 110): its posters as a 2×2 mosaic,
         // changing while hovered; sheets behind, a trip being a collection.
-        let hovered = self.card_hover.as_ref().filter(|(r, _)| *r == trip.root).map(|(_, since)| Some(since.elapsed()));
+        let hovered = self.card_hover.as_ref().filter(|(r, _)| *r == trip.root).map(|(_, since)| self.settings.card_motion().then(|| since.elapsed()));
         let root = trip.root.clone();
         omnix::cards::view::card(&trip.frames, hovered, TRIP_CARD, true, info.into(), 84.0, move |e| Message::TripCard(root.clone(), e))
     }
