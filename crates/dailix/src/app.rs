@@ -48,6 +48,8 @@ pub fn run(start: Start) -> iced::Result {
             // Docks match the window to the desktop entry by this id.
             #[cfg(target_os = "linux")]
             platform_specific: iced::window::settings::PlatformSpecific { application_id: "dailix".to_owned(), ..Default::default() },
+            // Closing saves what's typed first (`Message::Closing`).
+            exit_on_close_request: false,
             ..Default::default()
         })
         .run()
@@ -140,6 +142,8 @@ enum Message {
     Rate(String, Option<u8>),
     DayEdit(String, text_editor::Action),
     DaySave(String),
+    /// The window asked to close: what's typed is saved, then it closes.
+    Closing(iced::window::Id),
     /// Posters made (or not): shown as they come.
     Posters(Vec<PathBuf>),
     /// A clip picked by a click.
@@ -339,7 +343,30 @@ impl App {
     }
 
     /// Opens the project at `root` and starts making its missing posters.
+    /// What's typed and not yet saved, saved: every day's story changed,
+    /// the picked mark's note, the trip's description and tags. On leaving
+    /// a project, going home and closing: a story typed was lost without a
+    /// word (the UI review, 2026-11-14).
+    pub(super) fn save_typed(&mut self) {
+        let days: Vec<String> = self.dirty.iter().cloned().collect();
+        for day in days {
+            self.save_story(&day);
+        }
+        self.save_note();
+        self.save_about();
+    }
+
+    /// Day `day`'s story as typed, saved.
+    fn save_story(&mut self, day: &str) {
+        let note = self.drafts.get(day).map(|c| c.text().trim_end().to_owned()).unwrap_or_default();
+        self.change(Op::Day(DayOp::Note { day: day.to_owned(), note }));
+        if self.error.is_none() {
+            self.dirty.remove(day);
+        }
+    }
+
     fn load(&mut self, root: PathBuf) -> Task<Message> {
+        self.save_typed();
         let layout = Layout::new(&root);
         if !layout.is_project() {
             self.error = Some(format!("{} isn't a Dailix project (no dailix/project.json)", root.display()));
@@ -412,6 +439,7 @@ impl App {
         };
         let keys = iced::Subscription::batch([keys, grip]);
         let size = iced::window::resize_events().map(|(_, s)| Message::Resized(s));
+        let size = iced::Subscription::batch([size, iced::window::close_requests().map(Message::Closing)]);
         // A hovered card's tiles change, a screen frame at a time.
         let size = if self.card_moving() { iced::Subscription::batch([size, iced::window::frames().map(|_| Message::CardTick)]) } else { size };
         // The player's frames, every screen frame while it plays or seeks.
@@ -545,13 +573,11 @@ impl App {
                     c.perform(action);
                 }
             }
-            Message::DaySave(day) => {
-                let note = self.drafts.get(&day).map(|c| c.text().trim_end().to_owned()).unwrap_or_default();
-                self.change(Op::Day(DayOp::Note { day: day.clone(), note }));
-                if self.error.is_none() {
-                    self.dirty.remove(&day);
-                }
+            Message::Closing(window) => {
+                self.save_typed();
+                return iced::window::close(window);
             }
+            Message::DaySave(day) => self.save_story(&day),
             Message::Posters(made) => {
                 for p in made {
                     self.making.remove(&p);

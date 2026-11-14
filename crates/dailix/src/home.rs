@@ -118,8 +118,7 @@ impl App {
                 }
             }
             Message::Home => {
-                self.save_note();
-                self.save_about();
+                self.save_typed();
                 self.pane = pane::Pane::default();
                 self.selected = None;
                 self.at_home = true;
@@ -296,7 +295,7 @@ impl App {
     }
 
     /// The open trip's description and tags written, if they changed.
-    fn save_about(&mut self) {
+    pub(super) fn save_about(&mut self) {
         let Some(root) = &self.trip_open else { return };
         let typed = dailix_sheet::project::About { description: self.about.0.trim().to_owned(), tags: dailix_sheet::project::parse_tags(&self.about.1) };
         if typed != dailix_sheet::project::about(root)
