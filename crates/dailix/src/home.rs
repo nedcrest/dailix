@@ -287,6 +287,19 @@ impl App {
                 self.notice = done.as_ref().ok().map(|said| crate::add::summary(said));
                 self.error = done.err();
                 self.refresh_home();
+                // Its sheet, if loaded, read again: its new clips missed
+                // till another trip was opened (the audit, 2026-11-14).
+                // From the trip's page it's let go of, and read on opening.
+                if self.project.as_ref().is_some_and(|p| p.footage.layout.root == root) {
+                    // A story that couldn't be saved keeps its sheet.
+                    if self.at_home && self.save_typed() {
+                        self.project = None;
+                        self.selected = None;
+                        self.pane = pane::Pane::default();
+                    } else if !self.at_home {
+                        return self.load(root);
+                    }
+                }
             }
             _ => {}
         }
