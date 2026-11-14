@@ -183,7 +183,8 @@ impl App {
         let make = ui::small(label, ui::Kind::Primary).on_press_maybe((!busy && next.is_some()).then(|| to(VoiceMsg::Make)));
         let about = next.as_deref().and_then(voice::recipe).map_or("", |r| r.note);
         let make = tip(row![pick, make].spacing(4).align_y(Alignment::Center), text(format!("Made again from the original: {about}")), tooltip::Position::Top);
-        column![row![text("Voice").size(13), tiles].spacing(8).align_y(Alignment::Center), row![use_it, make].spacing(8).align_y(Alignment::Center)].spacing(4).into()
+        // Under its section's heading; the recipe labelled as what it does.
+        column![tiles, row![use_it, text("Clean-up").size(12).style(text::secondary), make].spacing(8).align_y(Alignment::Center)].spacing(6).into()
     }
 }
 

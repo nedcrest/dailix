@@ -1,7 +1,9 @@
-//! The picked clip at the right of the tiles, top to bottom (user's sketch,
-//! 2026-11-05): Omnix's player (`viewer`) and a strip with the clip's marks
-//! in their roles' colours; the marks as a list; an editing plane, the
-//! bottom quarter, for the mark picked or just made; the clip's facts.
+//! The picked clip at the right of the tiles, an inspector (user's sketch,
+//! 2026-11-05; the UI review, 2026-11-14, step 6): Omnix's player
+//! (`viewer`), a strip with the clip's marks in their roles' colours, and
+//! buttons for what the keys do; then folding sections: the marks as a
+//! list with an editing plane for the mark picked or just made, the voice,
+//! the file's facts. With no clip picked, a line says what to do.
 //! Every change to the marking goes through the sheet's core, by the
 //! mark's id. The pane's width is dragged at its edge (to half the
 //! window).
@@ -115,6 +117,18 @@ pub enum PaneMsg {
     /// The new mark's role chosen by a click (its place in the choices).
     PendingRole(usize),
     Voice(super::pane_voice::VoiceMsg),
+    /// A key's button pressed (In, Out, Flag, Moment): as the key.
+    Press(iced::keyboard::key::Code),
+    /// A section folded or unfolded.
+    Fold(Section),
+}
+
+/// The pane's folding sections.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Section {
+    Marks,
+    Voice,
+    File,
 }
 
 impl App {
@@ -186,7 +200,19 @@ impl App {
     }
 
     pub(super) fn on_pane(&mut self, msg: PaneMsg) -> iced::Task<Message> {
-        let task = self.pane_msg(msg);
+        let task = match msg {
+            PaneMsg::Press(code) => {
+                self.pane_key(code);
+                iced::Task::none()
+            }
+            PaneMsg::Fold(s) => {
+                if !self.folded.remove(&s) {
+                    self.folded.insert(s);
+                }
+                iced::Task::none()
+            }
+            msg => self.pane_msg(msg),
+        };
         self.sync_editor();
         task
     }
@@ -270,6 +296,8 @@ impl App {
                 }
             }
             PaneMsg::PendingRole(i) => return self.pending_role(i),
+            // On their way in `on_pane`.
+            PaneMsg::Press(_) | PaneMsg::Fold(_) => {}
         }
         iced::Task::none()
     }
@@ -413,49 +441,112 @@ impl App {
         true
     }
 
-    /// The pane, or nothing with no clip picked.
+    /// The pane, with a project open: the picked clip, or a line saying
+    /// what to do (a large empty box was there before a clip played).
     pub(super) fn pane(&self) -> Option<Element<'_, Message>> {
-        let key = self.pane.key.as_ref()?;
-        let name = key.split_once('/').map_or(key.as_str(), |(_, f)| f);
+        self.project.as_ref()?;
+        let body: Element<'_, Message> = match &self.pane.key {
+            Some(key) => self.inspector(key),
+            None => container(text("Pick a clip: a click, or ← →.\nP, ? and X rate it; I, O, M and N mark it; F1 lists every key.").size(13).style(text::secondary)).padding(16).into(),
+        };
+        // Outlined while the keys go to it (Tab).
+        let focused = self.pane.focused;
+        Some(
+            container(body)
+                .width(self.pane_width())
+                .height(Length::Fill)
+                .style(move |t: &Theme| {
+                    let mut s = container::rounded_box(t);
+                    if focused {
+                        s.border = iced::Border { color: t.extended_palette().primary.strong.color, width: 2.0, radius: s.border.radius };
+                    }
+                    s
+                })
+                .into(),
+        )
+    }
+
+    /// The clip `key`: its player, then its sections.
+    fn inspector<'a>(&'a self, key: &'a str) -> Element<'a, Message> {
+        let n = self.marks().len();
+        // The sections scroll as one under the player: in a short window
+        // the marks were squeezed to a line.
+        let sections = column![
+            self.section(Section::Marks, format!("Marks ({n})"), Some(self.marks_section())),
+            self.section(Section::Voice, "Voice".into(), self.pane.viewer.is_some().then(|| container(self.voice_row()).padding([0, 12]).into())),
+            self.section(Section::File, "About the file".into(), Some(container(self.facts()).padding([0, 12]).into())),
+        ]
+        .spacing(6)
+        .padding(iced::Padding { bottom: 10.0, ..Default::default() });
+        column![container(self.player(key)).padding(12), rule::horizontal(1), scrollable(sections).height(Length::Fill)].spacing(4).into()
+    }
+
+    /// A section: its heading (a click folds it) and, unfolded, `body`.
+    fn section<'a>(&'a self, s: Section, title: String, body: Option<Element<'a, Message>>) -> Element<'a, Message> {
+        let open = !self.folded.contains(&s);
+        let head = button(text(format!("{} {title}", if open { "▾" } else { "▸" })).size(13)).width(Length::Fill).padding([3, 12]).style(button::text).on_press(Message::Pane(PaneMsg::Fold(s)));
+        let mut c = column![head].spacing(4);
+        if let Some(b) = body.filter(|_| open) {
+            c = c.push(b);
+        }
+        c.into()
+    }
+
+    /// The name, the picture, the strip, play and the marks' buttons.
+    fn player<'a>(&'a self, key: &'a str) -> Element<'a, Message> {
+        let name = key.split_once('/').map_or(key, |(_, f)| f);
         let to = |m: PaneMsg| Message::Pane(m);
         let room = self.pane_width() - 24.0;
         let tall = self.height / self.scale;
         let mut top = column![text(name.to_owned()).size(16)].spacing(8);
-        match &self.pane.viewer {
-            Some(v) => {
-                let h = (room / v.aspect()).min(tall * 0.42);
-                let w = h * v.aspect();
-                let picture: Element<'_, Message> = match v.picture() {
-                    Some(p) => iced::widget::shader(p).width(w).height(h).into(),
-                    None => container(text("…")).width(w).height(h).center_x(w).center_y(h).into(),
-                };
-                top = top.push(container(picture).center_x(Length::Fill));
-                let strip = Strip {
-                    at: v.position(),
-                    length: v.duration(),
-                    marks: self.marks().iter().map(|m| (m.id.clone().unwrap_or_default(), m.t, if m.kind == MarkKind::Segment { m.end } else { None }, self.role_colour(m.role.as_deref()))).collect(),
-                    picked: self.pane.picked.clone(),
-                    mark_in: self.pane.mark_in,
-                    speech: self.pane.voices.speech.clone(),
-                };
-                top = top.push(canvas::Canvas::new(strip).width(Length::Fill).height(36));
-                top = top.push(
-                    row![
-                        ui::small(if v.playing() { "⏸" } else { "▶" }, ui::Kind::Secondary).on_press(to(PaneMsg::Toggle)),
-                        text(format!("{} / {}", dailix_sheet::clock(v.position(), 1), dailix_sheet::clock(v.duration(), 1))).size(13).style(text::secondary),
-                    ]
-                    .spacing(10)
-                    .align_y(Alignment::Center),
-                );
-                top = top.push(self.voice_row());
-            }
-            None => top = top.push(text(if self.pane.loading { "Opening…" } else { "" }).size(13).style(text::secondary)),
-        }
+        let Some(v) = &self.pane.viewer else { return top.push(text(if self.pane.loading { "Opening…" } else { "" }).size(13).style(text::secondary)).into() };
+        let h = (room / v.aspect()).min(tall * 0.42);
+        let w = h * v.aspect();
+        let picture: Element<'_, Message> = match v.picture() {
+            Some(p) => iced::widget::shader(p).width(w).height(h).into(),
+            None => container(text("…")).width(w).height(h).center_x(w).center_y(h).into(),
+        };
+        top = top.push(container(picture).center_x(Length::Fill));
+        let strip = Strip {
+            at: v.position(),
+            length: v.duration(),
+            marks: self.marks().iter().map(|m| (m.id.clone().unwrap_or_default(), m.t, if m.kind == MarkKind::Segment { m.end } else { None }, self.role_colour(m.role.as_deref()))).collect(),
+            picked: self.pane.picked.clone(),
+            mark_in: self.pane.mark_in,
+            speech: self.pane.voices.speech.clone(),
+        };
+        top = top.push(canvas::Canvas::new(strip).width(Length::Fill).height(40));
+        // What the keys do, as buttons too: making marks was keys only.
+        use iced::keyboard::key::Code;
+        let key_button = |label: &'static str, code: Code, hint: &'static str| super::tip(ui::small(label, ui::Kind::Secondary).on_press(to(PaneMsg::Press(code))), text(hint), iced::widget::tooltip::Position::Top);
+        let marks = row![
+            key_button("In", Code::KeyI, "A segment starts here (I)"),
+            key_button("Out", Code::KeyO, "The segment ends here (O)"),
+            key_button("Flag", Code::KeyM, "A note to self, not material (M)"),
+            key_button("Moment", Code::KeyN, "A second either side of here (N)"),
+        ]
+        .spacing(1);
+        let transport = row![
+            ui::small(if v.playing() { "⏸" } else { "▶" }, ui::Kind::Secondary).on_press(to(PaneMsg::Toggle)),
+            text(format!("{} / {}", dailix_sheet::clock(v.position(), 1), dailix_sheet::clock(v.duration(), 1))).size(13).style(text::secondary),
+            space().width(Length::Fill),
+            marks,
+        ]
+        .spacing(10)
+        .align_y(Alignment::Center);
+        top.push(transport).into()
+    }
 
-        // The marks, by time.
+    /// The marks by time, a click picking one; the plane for the one
+    /// picked or just made, only then.
+    fn marks_section(&self) -> Element<'_, Message> {
+        let to = |m: PaneMsg| Message::Pane(m);
         let mut list = column![].spacing(2);
         let mut marks = self.marks();
         marks.sort_by(|a, b| a.t.total_cmp(&b.t));
+        if marks.is_empty() {
+            list = list.push(text("None yet: In and Out (I, O) make a segment.").size(12).style(text::secondary));
+        }
         for m in &marks {
             let id = m.id.clone().unwrap_or_default();
             let picked = self.pane.picked.as_deref() == Some(id.as_str());
@@ -476,30 +567,9 @@ impl App {
                 .on_press(to(PaneMsg::Pick(if picked { None } else { Some(id.clone()) })));
             list = list.push(line);
         }
-
-        let column = column![
-            container(top).padding(12),
-            rule::horizontal(1),
-            scrollable(list.padding([6, 12])).height(Length::Fill),
-            container(self.plane()).height(tall * 0.25).width(Length::Fill).padding(10).style(container::bordered_box),
-            container(self.facts()).width(Length::Fill).padding(10),
-        ]
-        .spacing(6);
-        // Outlined while the keys go to it (Tab).
-        let focused = self.pane.focused;
-        Some(
-            container(column)
-                .width(self.pane_width())
-                .height(Length::Fill)
-                .style(move |t: &Theme| {
-                    let mut s = container::rounded_box(t);
-                    if focused {
-                        s.border = iced::Border { color: t.extended_palette().primary.strong.color, width: 2.0, radius: s.border.radius };
-                    }
-                    s
-                })
-                .into(),
-        )
+        let editing = self.pane.pending.is_some() || self.pane.picked.is_some();
+        let plane = editing.then(|| container(container(self.plane()).height(190).width(Length::Fill).padding(10).style(container::bordered_box)).padding([0, 12]));
+        column![list.padding([0, 12])].push(plane).spacing(6).into()
     }
 
     /// The editing plane: a new mark's role then note, or the picked
