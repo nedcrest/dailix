@@ -12,6 +12,12 @@ command line; it replaces footage-agent's web contact sheet. A trip holds
 its edits, each with its exports; a new trip is made here.
 Bringing footage in is designed (`docs/INGEST.md`), not built.
 
+**New here? Read [the guide](../omnix-360-studio/docs/guide/README.md)**
+(it lives in Omnix's repository, for both programs): installing, a
+tutorial from a trip's clips to a finished film, and every key, command
+and setting ([Dailix's keys](../omnix-360-studio/docs/guide/keys-dailix.md),
+[commands](../omnix-360-studio/docs/guide/commands-dailix.md)).
+
 ## Three places
 
 Dailix works across three places, each set in its settings (its first
