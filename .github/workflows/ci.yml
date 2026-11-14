@@ -1,6 +1,9 @@
 # Every push and pull request: Dailix builds against Omnix and the sheet
 # core, checked out beside it as on a developer's machine
-# (`../omnix-360-studio`), its tests pass and clippy reads it.
+# (`../omnix-360-studio`, its main branch), its tests pass and clippy reads
+# it. The Omnix repo is the owner's `omnix-360-studio` unless the repo
+# variable OMNIX_REPO says otherwise; while it's private, a read-only
+# token for it goes in the secret OMNIX_TOKEN.
 name: CI
 
 on:
@@ -16,7 +19,8 @@ jobs:
           path: dailix
       - uses: actions/checkout@v4
         with:
-          repository: ${{ github.repository_owner }}/omnix-360-studio
+          repository: ${{ vars.OMNIX_REPO || format('{0}/omnix-360-studio', github.repository_owner) }}
+          token: ${{ secrets.OMNIX_TOKEN || github.token }}
           path: omnix-360-studio
       - name: System libraries
         run: |
@@ -30,10 +34,10 @@ jobs:
           workspaces: dailix
       - name: Build
         working-directory: dailix
-        run: cargo build --all-targets
+        run: cargo build --locked --all-targets
       - name: Test
         working-directory: dailix
-        run: cargo test
+        run: cargo test --locked
       - name: Clippy
         working-directory: dailix
-        run: cargo clippy --all-targets
+        run: cargo clippy --locked --all-targets

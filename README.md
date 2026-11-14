@@ -97,7 +97,9 @@ Where the project stands and what's next: `docs/CONTEXT.md`.
 ## Building
 
 Dailix builds against Omnix (its player and sound tools) and the contact
-sheet's core, both in Omnix's repo: clone the two side by side.
+sheet's core, both in Omnix's repo: clone the two side by side, Omnix's
+folder named `omnix-360-studio` (Dailix finds it at
+`../omnix-360-studio`).
 
 ```sh
 git clone <omnix-360-studio> && git clone <dailix>
