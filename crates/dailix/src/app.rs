@@ -15,10 +15,11 @@ mod settings_window;
 #[path = "new_trip.rs"]
 mod new_trip;
 
+use crate::ui;
 use dailix_sheet::footage::{self, Footage};
 use crate::settings::Settings;
 use dailix_sheet::{ClipOp, DayOp, Layout, MarkKind, Op, Rating, Sheet, Store};
-use iced::widget::{button, column, container, image, row, rule, scrollable, space, text, text_editor, tooltip};
+use iced::widget::{column, container, image, row, rule, scrollable, space, text, text_editor, tooltip};
 use iced::{Alignment, Element, Length, Task, Theme};
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
@@ -741,34 +742,33 @@ impl App {
         let half = crate::help::GROUPS.len().div_ceil(2);
         let col = |gs: &'static [(&'static str, &'static [(&'static str, &'static str)])]| column(gs.iter().map(group)).spacing(18).width(Length::Fill);
         let body = row![col(&crate::help::GROUPS[..half]), col(&crate::help::GROUPS[half..])].spacing(28);
-        let card = container(
+        let card = ui::dialog(
             column![
-                row![text("Keys and mouse").size(18), space().width(Length::Fill), button(text("Close")).on_press(Message::Help)].align_y(Alignment::Center),
+                row![text("Keys and mouse").size(18), space().width(Length::Fill), ui::act("Close", ui::Kind::Secondary).on_press(Message::Help)].align_y(Alignment::Center),
                 rule::horizontal(1),
                 scrollable(body).height(Length::Shrink),
             ]
-            .spacing(12)
-            .width(900),
+            .spacing(ui::DIALOG_GAP),
+            900.0,
         )
-        .padding(18)
         .max_height(720)
         .style(container::rounded_box);
         modal(card, Message::Help)
     }
 
     fn page(&self) -> Element<'_, Message> {
-        let open = button(text("Open…")).on_press(Message::Open);
-        let size = |label: &'static str, step: i32, hint: &'static str| tip(button(text(label).size(13)).padding([4, 10]).style(button::secondary).on_press(Message::Scale(step)), text(hint), tooltip::Position::Bottom);
+        let open = ui::act("Open…", ui::Kind::Secondary).on_press(Message::Open);
+        let size = |label: &'static str, step: i32, hint: &'static str| tip(ui::act(label, ui::Kind::Secondary).on_press(Message::Scale(step)), text(hint), tooltip::Position::Bottom);
         let sizes = row![size("A−", -1, "Smaller text (Ctrl+−)"), text(format!("{:.0}%", self.scale * 100.0)).size(12), size("A+", 1, "Bigger text (Ctrl+=)")].spacing(6).align_y(Alignment::Center);
         let mut top = row![text(self.title()).size(20), space().width(Length::Fill)].spacing(12).align_y(Alignment::Center);
         if !self.making.is_empty() {
             top = top.push(text(format!("making posters: {} left", self.making.len())).size(13));
         }
-        let keys = tip(button(text("Keys").size(13)).padding([4, 10]).style(button::secondary).on_press(Message::Help), text("The keys and the mouse (F1)"), tooltip::Position::Bottom);
-        let settings = tip(button(text("Settings").size(13)).padding([4, 10]).style(button::secondary).on_press(Message::Settings), text("Places and look (Ctrl+,)"), tooltip::Position::Bottom);
+        let keys = tip(ui::act("Keys", ui::Kind::Secondary).on_press(Message::Help), text("The keys and the mouse (F1)"), tooltip::Position::Bottom);
+        let settings = tip(ui::act("Settings", ui::Kind::Secondary).on_press(Message::Settings), text("Places and look (Ctrl+,)"), tooltip::Position::Bottom);
         let top = top.push(sizes).push(keys).push(settings).push(open);
         // Home first in the bar, always; lit while it's shown.
-        let home = button(text("⌂ Home").size(13)).padding([4, 10]).style(if self.at_home { button::primary } else { button::secondary }).on_press(Message::Home);
+        let home = ui::act("⌂ Home", if self.at_home { ui::Kind::Primary } else { ui::Kind::Secondary }).on_press(Message::Home);
         let top = row![tip(home, text("The projects and their days"), tooltip::Position::Bottom), top].spacing(10).align_y(Alignment::Center);
         let mut page = column![container(top).padding([10, 16])];
         if let Some(e) = &self.error {
@@ -801,12 +801,12 @@ impl App {
     fn day<'a>(&'a self, p: &'a Project, day: &'a footage::Day) -> Element<'a, Message> {
         let rated = day.clips.iter().filter(|c| p.sheet.clips.get(&c.key).is_some_and(|s| s.rating.is_some())).count();
         let to_omnix = tip(
-            button(text("→ Omnix").size(13)).padding([3, 10]).style(button::secondary).on_press(Message::ToOmnix(p.footage.layout.root.clone(), Some(day.day.clone()))),
+            ui::act("→ Omnix", ui::Kind::Secondary).on_press(Message::ToOmnix(p.footage.layout.root.clone(), Some(day.day.clone()))),
             text("An edit of this day from its marking, opened in Omnix (a new video of the trip)"),
             tooltip::Position::Bottom,
         );
         let empty = tip(
-            button(text("Empty day").size(13)).padding([3, 10]).style(button::secondary).on_press(Message::EmptyDay(p.footage.layout.root.clone(), Some(day.day.clone()))),
+            ui::act("Empty day", ui::Kind::Secondary).on_press(Message::EmptyDay(p.footage.layout.root.clone(), Some(day.day.clone()))),
             text("An empty edit of this day in Omnix, its clips in the bin, to build the idea afresh"),
             tooltip::Position::Bottom,
         );
@@ -815,7 +815,7 @@ impl App {
             Some(content) => {
                 let d = day.day.clone();
                 let editor = text_editor(content).placeholder("the day's story").size(14).height(Length::Shrink).on_action(move |a| Message::DayEdit(d.clone(), a));
-                let save = self.dirty.contains(&day.day).then(|| button(text("Save").size(13)).padding([4, 12]).on_press(Message::DaySave(day.day.clone())));
+                let save = self.dirty.contains(&day.day).then(|| ui::act("Save", ui::Kind::Secondary).on_press(Message::DaySave(day.day.clone())));
                 row![editor].push(save).spacing(8).align_y(Alignment::Start).into()
             }
             None => space().into(),
@@ -837,7 +837,7 @@ impl App {
         let rate = |r: u8, label: &'static str, hint: &'static str| -> Element<'a, Message> {
             let on = rating == Some(r);
             tip(
-                button(text(label).size(14)).padding([2, 10]).style(if on { button::primary } else { button::secondary }).on_press(Message::Rate(c.key.clone(), Some(r))),
+                ui::small(label, if on { ui::Kind::Primary } else { ui::Kind::Secondary }).on_press(Message::Rate(c.key.clone(), Some(r))),
                 text(hint),
                 tooltip::Position::Top,
             )

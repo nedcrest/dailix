@@ -6,6 +6,7 @@
 //! ✎ when the day's story is written, where its files are). Folders stay
 //! out of sight: a day's card opens it in the contact sheet.
 
+use crate::ui;
 use super::{App, Message, modal, pane};
 use std::path::{Path, PathBuf};
 use crate::library::{self, Place, Trip};
@@ -77,15 +78,15 @@ impl App {
         let new = if c.empty { "New empty edit" } else { "New from the marking" };
         let buttons = row![
             space().width(Length::Fill),
-            button(text("Cancel")).style(button::secondary).on_press(Message::ChooseCancel),
-            button(text(new)).style(button::primary).on_press(Message::ChooseNew),
+            ui::act("Cancel", ui::Kind::Secondary).on_press(Message::ChooseCancel),
+            ui::act(new, ui::Kind::Primary).on_press(Message::ChooseNew),
         ]
         .spacing(8);
         let card = column![text(format!("{what} has edits already")).size(20), text("Open one, or make a new one.").size(13).style(text::secondary), list, buttons].spacing(12);
         // Two edit cards side by side: they were 2 px too wide for the 520
         // it had (the UI review, 2026-11-14).
-        let width = 2.0 * EDIT_CARD + CARDS_GAP + 2.0 * 18.0;
-        modal(container(card).padding(18).width(width).style(container::rounded_box), Message::ChooseCancel)
+        let width = 2.0 * EDIT_CARD + CARDS_GAP + 2.0 * ui::DIALOG_PAD;
+        modal(ui::dialog(card, width), Message::ChooseCancel)
     }
 
     /// The home view's messages, and going to and from it: a project
@@ -281,12 +282,12 @@ impl App {
         };
         let buttons = row![
             space().width(Length::Fill),
-            button(text("Cancel")).style(button::secondary).on_press(Message::DeleteCancel),
-            button(text("Move to trash")).style(button::danger).on_press_maybe(words.is_some().then_some(Message::DeleteConfirm)),
+            ui::act("Cancel", ui::Kind::Secondary).on_press(Message::DeleteCancel),
+            ui::act("Move to trash", ui::Kind::Danger).on_press_maybe(words.is_some().then_some(Message::DeleteConfirm)),
         ]
         .spacing(8);
-        let card = column![text(title).size(20), text(said).size(14).style(text::secondary), buttons].spacing(14);
-        modal(container(card).padding(20).width(520).style(container::rounded_box), Message::DeleteCancel)
+        let card = column![text(title).size(20), text(said).size(14).style(text::secondary), buttons].spacing(ui::DIALOG_GAP);
+        modal(ui::dialog(card, ui::DIALOG_WIDTH), Message::DeleteCancel)
     }
 
     /// The edits shown as cards (the open trip's, the ones offered before
@@ -351,7 +352,7 @@ impl App {
         match library::first_run(&self.places, self.trips.len()) {
             Some(library::FirstRun::Welcome) => page = page.push(self.welcome()),
             Some(library::FirstRun::Say(said, choose)) => {
-                let choose = choose.map(|kind| button(text(format!("Choose the {} folder…", kind.name())).size(14)).padding([5, 12]).on_press(Message::ChoosePlace(kind)));
+                let choose = choose.map(|kind| ui::act(format!("Choose the {} folder…", kind.name()), ui::Kind::Primary).on_press(Message::ChoosePlace(kind)));
                 page = page.push(column![text(said).size(15)].push(choose).spacing(10).max_width(640));
             }
             None => {}
@@ -362,7 +363,7 @@ impl App {
                 // A trip needs the projects place: none yet, the first run's
                 // button above chooses it.
                 let place = self.places.iter().any(|p| p.kind == crate::settings::PlaceKind::Projects && p.online);
-                let new = place.then(|| super::tip(button(text("+ New trip").size(14)).padding([5, 12]).on_press(Message::NewTrip), text("A new trip in the projects place, in the fixed layout (Ctrl+N)"), tooltip::Position::Bottom));
+                let new = place.then(|| super::tip(ui::act("+ New trip", ui::Kind::Primary).on_press(Message::NewTrip), text("A new trip in the projects place, in the fixed layout (Ctrl+N)"), tooltip::Position::Bottom));
                 page = page.push(new).push(iced::widget::row(self.trips.iter().map(|t| self.trip_card(t))).spacing(14).wrap().vertical_spacing(14));
             }
         }
@@ -397,14 +398,14 @@ impl App {
             let title = row![text(label).size(18)].push(optional.then(|| text("optional").size(12).style(text::secondary))).spacing(8).align_y(Alignment::Center);
             let path = row![text(library::middle(&library::tilde(&folder, &home), 48)).size(15).font(iced::Font::MONOSPACE)].push((!tags.is_empty()).then(|| text(tags.join(" · ")).size(12).style(text::secondary))).spacing(10).align_y(Alignment::Center);
             let words = column![title, path, text(hint).size(13).style(text::secondary)].spacing(4).width(Length::Fill);
-            let change = button(text("Change…").size(14)).padding([6, 14]).style(button::secondary).on_press(Message::ChoosePlace(kind));
+            let change = ui::act("Change…", ui::Kind::Secondary).on_press(Message::ChoosePlace(kind));
             container(row![words, change].spacing(16).align_y(Alignment::Center)).padding([16, 20]).width(Length::Fill).into()
         };
         let line = || container(space().height(1).width(Length::Fill)).style(|_: &Theme| container::Style { background: Some(iced::Color { a: 0.08, ..iced::Color::WHITE }.into()), ..Default::default() });
         let list = container(column![row_of(PlaceKind::Projects), line(), row_of(PlaceKind::Tmp), line(), row_of(PlaceKind::Sources)])
             .width(Length::Fill)
             .style(|t: &Theme| container::Style { background: Some(t.extended_palette().background.base.color.into()), border: iced::Border { color: iced::Color { a: 0.08, ..iced::Color::WHITE }, width: 1.0, radius: 10.0.into() }, ..Default::default() });
-        let take = button(text("Use these folders").size(16)).padding([10, 22]).style(button::primary).on_press(Message::UseDefaultPlaces);
+        let take = ui::act("Use these folders", ui::Kind::Primary).on_press(Message::UseDefaultPlaces);
         let card = container(
             column![
                 text("Where should Dailix keep your footage?").size(28),
@@ -480,7 +481,7 @@ impl App {
         let dates = trip.dates();
         // The whole project into Omnix (user, 2026-11-05: an empty edit
         // with every day in the bin, not one day's).
-        let all = |label: &'static str, msg: Message, hint: &'static str| super::tip(button(text(label).size(13)).padding([3, 10]).style(button::secondary).on_press(msg), text(hint), tooltip::Position::Bottom);
+        let all = |label: &'static str, msg: Message, hint: &'static str| super::tip(ui::act(label, ui::Kind::Secondary).on_press(msg), text(hint), tooltip::Position::Bottom);
         let name: Element<'a, Message> = match &self.naming {
             Some((root, typed)) if *root == trip.root => text_input("the folder's name", typed).id(NAME).size(18).width(320).on_input(Message::NameEdit).on_submit(Message::NameSave).into(),
             _ => super::tip(button(text(trip.title.clone()).size(18)).padding(0).style(button::text).on_press(Message::Name(trip.root.clone())), text("Rename (the folder keeps its name)"), tooltip::Position::Bottom),
@@ -491,7 +492,7 @@ impl App {
             all("→ Omnix (all days)", Message::ToOmnix(trip.root.clone(), None), "An edit of every day from its marking, opened in Omnix"),
             all("Empty edit", Message::EmptyDay(trip.root.clone(), None), "An empty edit in Omnix, every day's clips in its bin"),
             all("+ Add videos…", Message::AddVideos(trip.root.clone()), "Videos copied into the trip, each under the day it was filmed (the originals stay as they are)"),
-            super::tip(button(text("Delete trip…").size(13)).padding([3, 10]).style(button::danger).on_press(Message::DeleteAsk(crate::delete::Doomed::Trip(trip.root.clone()))), text("To the system's trash, after a question; the originals in the sources stay"), tooltip::Position::Bottom),
+            super::tip(ui::act("Delete trip…", ui::Kind::Danger).on_press(Message::DeleteAsk(crate::delete::Doomed::Trip(trip.root.clone()))), text("To the system's trash, after a question; the originals in the sources stay"), tooltip::Position::Bottom),
         ]
         .spacing(12)
         .align_y(Alignment::Center);
@@ -507,7 +508,7 @@ impl App {
         }
         // Each card with its way to the trash under it (a click on the card
         // opens it).
-        let trash = |e: &PathBuf| button(text("Move to trash…").size(13)).padding([4, 12]).style(button::danger).on_press(Message::DeleteAsk(crate::delete::Doomed::Edit(e.clone())));
+        let trash = |e: &PathBuf| ui::act("Move to trash…", ui::Kind::Danger).on_press(Message::DeleteAsk(crate::delete::Doomed::Edit(e.clone())));
         edits = edits.push(iced::widget::row(trip.edits.iter().map(|e| column![self.edit_card(e, ""), trash(e)].spacing(2).into())).spacing(14).wrap().vertical_spacing(14));
         let cards = iced::widget::row(trip.days.iter().map(|d| self.day_card(trip, d))).spacing(10).wrap().vertical_spacing(10);
         column![head, about, edits, text("Days").size(15), cards].spacing(12).into()
@@ -537,7 +538,7 @@ impl App {
         .width(CARD);
         let open = button(column![poster, info].spacing(6)).padding(0).style(button::text).on_press(Message::OpenDay(trip.root.clone(), d.day.clone()));
         // The day straight into Omnix: its edit from the marking, or empty.
-        let small = |label: &'static str, msg: Message, hint: &'static str| super::tip(button(text(label).size(12)).padding([2, 8]).style(button::secondary).on_press(msg), text(hint), tooltip::Position::Bottom);
+        let small = |label: &'static str, msg: Message, hint: &'static str| super::tip(ui::small(label, ui::Kind::Secondary).on_press(msg), text(hint), tooltip::Position::Bottom);
         let actions = row![
             small("→ Omnix", Message::ToOmnix(trip.root.clone(), Some(d.day.clone())), "An edit of this day from its marking, opened in Omnix"),
             small("Empty day", Message::EmptyDay(trip.root.clone(), Some(d.day.clone())), "An empty edit of this day in Omnix, its clips in the bin"),

@@ -11,6 +11,7 @@ mod library;
 mod editor;
 mod install;
 mod settings;
+mod ui;
 mod voice;
 
 use clap::{Parser, Subcommand};

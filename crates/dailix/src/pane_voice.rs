@@ -4,11 +4,12 @@
 //! marking's `audio`), a missing one made from the original off the UI
 //! thread.
 
+use crate::ui;
 use super::pane::PaneMsg;
 use super::{App, Message, tip};
 use dailix_sheet::voice;
 use dailix_sheet::{ClipOp, Op};
-use iced::widget::{button, column, pick_list, row, text, tooltip};
+use iced::widget::{column, pick_list, row, text, tooltip};
 use iced::{Alignment, Element, Task};
 
 /// The clip's voices as the pane knows them.
@@ -168,18 +169,18 @@ impl App {
             let heard = v.heard.as_deref() == name;
             let tick = if chosen.as_deref() == name { "✓ " } else { "" };
             let label = format!("{tick}{}{}", name.unwrap_or("Original"), lufs(l));
-            button(text(label).size(12)).padding([2, 8]).style(if heard { button::primary } else { button::secondary }).on_press(to(VoiceMsg::Hear(name.map(str::to_owned)))).into()
+            ui::small(label, if heard { ui::Kind::Primary } else { ui::Kind::Secondary }).on_press(to(VoiceMsg::Hear(name.map(str::to_owned)))).into()
         };
         let tiles: Vec<Element<'_, Message>> = std::iter::once(tile(None, v.own)).chain(v.made.iter().map(|(n, l)| tile(Some(n), *l))).collect();
         let tiles = tip(row(tiles).spacing(4).wrap(), text(format!("Hear each at {:.0} LUFS (numbers: as made); ✓ the one the edit uses", voice::HEARD_AT)), tooltip::Position::Top);
-        let use_it = button(text("Use for the edit").size(12)).padding([2, 8]).style(button::secondary).on_press_maybe((v.heard != chosen).then(|| to(VoiceMsg::Use)));
+        let use_it = ui::small("Use for the edit", ui::Kind::Secondary).on_press_maybe((v.heard != chosen).then(|| to(VoiceMsg::Use)));
         let names: Vec<String> = voice::RECIPES.iter().map(|r| r.name.to_owned()).collect();
         let next = self.recipe_to_make().map(|r| r.name.to_owned());
         let pick = pick_list(names, next.clone(), move |n| to(VoiceMsg::Recipe(n))).text_size(12).padding([2, 6]);
         let making = self.pane.key.as_deref().map_or_else(Vec::new, |k| making_for(&self.voice_makes, k));
         let busy = next.as_ref().is_some_and(|n| making.contains(&n.as_str()));
         let label = if making.is_empty() { "Make".to_owned() } else { format!("Making {}…", making.join(", ")) };
-        let make = button(text(label).size(12)).padding([2, 8]).on_press_maybe((!busy && next.is_some()).then(|| to(VoiceMsg::Make)));
+        let make = ui::small(label, ui::Kind::Primary).on_press_maybe((!busy && next.is_some()).then(|| to(VoiceMsg::Make)));
         let about = next.as_deref().and_then(voice::recipe).map_or("", |r| r.note);
         let make = tip(row![pick, make].spacing(4).align_y(Alignment::Center), text(format!("Made again from the original: {about}")), tooltip::Position::Top);
         column![row![text("Voice").size(13), tiles].spacing(8).align_y(Alignment::Center), row![use_it, make].spacing(8).align_y(Alignment::Center)].spacing(4).into()

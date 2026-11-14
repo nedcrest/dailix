@@ -3,8 +3,9 @@
 //! it, its folder (the month and the name in Latin until typed over), a
 //! description and tags. Made, its page opens.
 
+use crate::ui;
 use super::{App, Message, modal};
-use iced::widget::{button, column, container, row, space, text, text_input};
+use iced::widget::{column, row, space, text, text_input};
 use iced::{Alignment, Element, Length, Task};
 
 /// The form as typed.
@@ -104,12 +105,12 @@ impl App {
         });
         let buttons = row![
             space().width(Length::Fill),
-            button(text("Cancel")).style(button::secondary).on_press(Message::NewTripCancel),
-            button(text("Make the trip")).style(button::primary).on_press_maybe(ready.then_some(Message::NewTripMake)),
+            ui::act("Cancel", ui::Kind::Secondary).on_press(Message::NewTripCancel),
+            ui::act("Make the trip", ui::Kind::Primary).on_press_maybe(ready.then_some(Message::NewTripMake)),
         ]
         .spacing(8)
         .align_y(Alignment::Center);
-        let card = container(column![body, buttons].spacing(16)).padding(18).width(520).style(container::rounded_box);
+        let card = ui::dialog(column![body, buttons].spacing(ui::DIALOG_GAP), ui::DIALOG_WIDTH);
         modal(card, Message::NewTripCancel)
     }
 }

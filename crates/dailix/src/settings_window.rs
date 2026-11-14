@@ -2,6 +2,7 @@
 //! program, in groups, as Omnix's): the places and how it looks. A
 //! folder is chosen by a dialog; `dailix places` still sets any of them.
 
+use crate::ui;
 use super::{App, Message, modal, tip};
 use crate::settings::PlaceKind;
 use iced::widget::{button, column, container, row, rule, scrollable, space, text, tooltip};
@@ -82,21 +83,20 @@ impl App {
     /// outside close it.
     pub(super) fn settings_layer(&self) -> Element<'_, Message> {
         let Some(open) = self.settings_open else { return space().into() };
-        let close = tip(button(text("✕").size(14)).padding([0, 6]).style(button::text).on_press(Message::Settings), text("Close (Esc)"), tooltip::Position::Bottom);
+        let close = tip(ui::small("✕", ui::Kind::Quiet).on_press(Message::Settings), text("Close (Esc)"), tooltip::Position::Bottom);
         let groups = column(Group::ALL.iter().map(|&g| button(text(g.name()).size(15)).width(Length::Fill).padding([6, 10]).style(if g == open { button::primary } else { button::text }).on_press(Message::SettingsGroup(g)).into())).spacing(4).width(140);
         let page = match open {
             Group::Places => self.places_page(),
             Group::Look => self.look_page(),
         };
-        let card = container(
+        let card = ui::dialog(
             column![
                 row![text("Settings").size(20).width(Length::Fill), close].align_y(Alignment::Center),
                 row![groups, rule::vertical(1), scrollable(container(page).padding([0, 12])).width(Length::Fill).height(Length::Fill)].spacing(12),
             ]
-            .spacing(12),
+            .spacing(ui::DIALOG_GAP),
+            720.0,
         )
-        .padding(16)
-        .width(720)
         .height(440)
         .style(container::rounded_box);
         modal(card, Message::Settings)
@@ -109,7 +109,7 @@ impl App {
             column![
                 text(kind.name()).size(16),
                 text(what).size(13).style(text::secondary),
-                row![text(folder).size(14).width(Length::Fill), button(text("Choose…").size(14)).on_press(Message::ChoosePlace(kind))].spacing(8).align_y(Alignment::Center),
+                row![text(folder).size(14).width(Length::Fill), ui::act("Choose…", ui::Kind::Secondary).on_press(Message::ChoosePlace(kind))].spacing(8).align_y(Alignment::Center),
             ]
             .spacing(6)
             .into()
@@ -125,7 +125,7 @@ impl App {
 
     /// The text's size.
     fn look_page(&self) -> Element<'_, Message> {
-        let size = |label: &'static str, step: i32| button(text(label).size(14)).padding([4, 12]).style(button::secondary).on_press(Message::Scale(step));
+        let size = |label: &'static str, step: i32| ui::act(label, ui::Kind::Secondary).on_press(Message::Scale(step));
         column![
             text("Text size").size(16),
             row![size("A−", -1), text(format!("{:.0}%", self.scale * 100.0)).size(14), size("A+", 1), size("100%", 0)].spacing(8).align_y(Alignment::Center),

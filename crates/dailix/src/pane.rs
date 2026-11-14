@@ -18,6 +18,7 @@
 //! which is hard to learn). On the strip a segment's edges and a flag are
 //! dragged.
 
+use crate::ui;
 use super::{App, Message};
 use dailix_sheet::{MarkKind, MarkOp, Op};
 use iced::widget::canvas::{self, Frame, Geometry, Path};
@@ -440,7 +441,7 @@ impl App {
                 top = top.push(canvas::Canvas::new(strip).width(Length::Fill).height(36));
                 top = top.push(
                     row![
-                        button(text(if v.playing() { "⏸" } else { "▶" }).size(14)).padding([2, 12]).on_press(to(PaneMsg::Toggle)),
+                        ui::small(if v.playing() { "⏸" } else { "▶" }, ui::Kind::Secondary).on_press(to(PaneMsg::Toggle)),
                         text(format!("{} / {}", dailix_sheet::clock(v.position(), 1), dailix_sheet::clock(v.duration(), 1))).size(13).style(text::secondary),
                     ]
                     .spacing(10)
@@ -547,7 +548,7 @@ impl App {
                 let choices = self.role_choices();
                 let current = m.role.as_ref().and_then(|r| choices.iter().find(|c| &c.key == r).cloned()).unwrap_or_else(|| choices[0].clone());
                 let role = pick_list(choices, Some(current), move |r: RoleChoice| to(PaneMsg::Role((!r.key.is_empty()).then_some(r.key)))).text_size(13);
-                let remove = button(text("✕").size(13)).padding([2, 8]).style(button::danger).on_press(to(PaneMsg::Remove));
+                let remove = ui::small("✕", ui::Kind::Danger).on_press(to(PaneMsg::Remove));
                 b = b.push(row![role, space().width(Length::Fill), remove].spacing(8).align_y(Alignment::Center));
                 b = b.push(scrollable(note).height(Length::Fill));
             }
