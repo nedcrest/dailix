@@ -188,25 +188,8 @@ pub fn defaults_for(places: &[Place], home: &Path) -> Vec<(PlaceKind, PathBuf)> 
     places.iter().filter(|p| p.path.is_none()).map(|p| (p.kind, default_place(p.kind, home))).collect()
 }
 
-/// `path` as people say it: the home folder as `~`.
-pub fn tilde(path: &Path, home: &Path) -> String {
-    match path.strip_prefix(home) {
-        Ok(rest) if !home.as_os_str().is_empty() => Path::new("~").join(rest).display().to_string(),
-        _ => path.display().to_string(),
-    }
-}
-
-/// `path` cut to `most` characters in the middle, so its start and its
-/// last folder (the part people know) stay: `/home/someone/…/projects`.
-pub fn middle(path: &str, most: usize) -> String {
-    let chars: Vec<char> = path.chars().collect();
-    if chars.len() <= most || most < 5 {
-        return path.to_owned();
-    }
-    let tail = (most - 1) / 2 + (most - 1) % 2;
-    let head = most - 1 - tail;
-    chars[..head].iter().chain(['…'].iter()).chain(&chars[chars.len() - tail..]).collect()
-}
+// The home folder as `~`, a long path cut in the middle: Omnix's.
+pub use omnix::paths::{middle, tilde};
 
 /// What Home shows before any trip can.
 #[derive(Debug, PartialEq)]
@@ -257,13 +240,6 @@ mod tests {
     }
 
     #[test]
-    fn the_home_folder_is_said_as_a_tilde() {
-        let home = Path::new("/home/someone");
-        assert_eq!(tilde(Path::new("/home/someone/Dailix/projects"), home), "~/Dailix/projects");
-        assert_eq!(tilde(Path::new("/media/disk/trips"), home), "/media/disk/trips");
-    }
-
-    #[test]
     fn a_trip_naming_no_sources_says_nothing_of_them() {
         let here = std::env::temp_dir();
         assert_eq!(InSources::of(None, "2030-05-01"), InSources::NotNamed);
@@ -276,14 +252,6 @@ mod tests {
         let p = |online, free| Place { kind: crate::settings::PlaceKind::Tmp, path: None, online, free };
         assert!(!place_trouble(&p(true, Some(200_000_000_000))) && !place_trouble(&p(true, None)));
         assert!(place_trouble(&p(false, None)) && place_trouble(&p(true, Some(3_000_000_000))));
-    }
-
-    #[test]
-    fn a_long_path_is_cut_in_the_middle_keeping_its_last_folder() {
-        assert_eq!(middle("/home/someone/Dailix/projects", 40), "/home/someone/Dailix/projects");
-        let cut = middle("/media/someone/Big Disk/Trips/2026/everything/projects", 30);
-        assert_eq!(cut.chars().count(), 30);
-        assert!(cut.starts_with("/media/") && cut.ends_with("/projects") && cut.contains('…'), "{cut}");
     }
 
     #[test]
