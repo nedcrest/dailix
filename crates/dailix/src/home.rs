@@ -448,11 +448,7 @@ impl App {
         use crate::settings::PlaceKind;
         let home = std::env::home_dir().unwrap_or_default();
         let row_of = |kind: PlaceKind| -> Element<'_, Message> {
-            let (hint, optional) = match kind {
-                PlaceKind::Projects => ("Each trip keeps its footage, marks and edits here.", false),
-                PlaceKind::Tmp => ("Footage lands here first, from cards and phones.", true),
-                PlaceKind::Sources => ("The originals are kept here, never changed.", true),
-            };
+            let (hint, optional) = (kind.about(), kind != PlaceKind::Projects);
             let chosen = self.places.iter().find(|p| p.kind == kind).and_then(|p| p.path.clone());
             let folder = chosen.clone().unwrap_or_else(|| library::default_place(kind, &home));
             let mut tags = Vec::new();
@@ -506,7 +502,7 @@ impl App {
                 (false, _) if p.path.is_none() => format!("○ {} · not set", p.kind.label()),
                 (false, _) => format!("○ {} · offline", p.kind.label()),
             };
-            let path = p.path.as_ref().map(|p| p.display().to_string()).unwrap_or_default();
+            let path = p.path.as_deref().map(omnix::paths::shown).unwrap_or_default();
             // Quiet while all's well; red when away, not set, or nearly
             // full (under 10 GB): status, louder only when it matters.
             let trouble = library::place_trouble(p);

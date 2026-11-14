@@ -102,10 +102,13 @@ impl App {
         modal(card, Message::Settings)
     }
 
-    /// Each place: its folder and a button to choose another.
+    /// Each place, in the order shown everywhere: its folder (from `~`)
+    /// and a button to choose another.
     fn places_page(&self) -> Element<'_, Message> {
-        let place = |kind: PlaceKind, what: &'static str| -> Element<'_, Message> {
-            let folder = self.settings.place(kind).map_or_else(|| "Not set".to_owned(), |p| p.display().to_string());
+        let place = |kind: PlaceKind| -> Element<'_, Message> {
+            let folder = self.settings.place(kind).map_or_else(|| "Not set".to_owned(), |p| omnix::paths::shown(&p));
+            // The trips' folder is Omnix's too, until it has its own.
+            let what = if kind == PlaceKind::Projects { format!("{} Omnix starts from it too, until it has its own.", kind.about()) } else { kind.about().to_owned() };
             column![
                 text(kind.label()).size(16),
                 text(what).size(13).style(text::secondary),
@@ -114,13 +117,7 @@ impl App {
             .spacing(6)
             .into()
         };
-        column![
-            place(PlaceKind::Projects, "The projects: each a folder of the fixed layout. Omnix starts from it too, until it has its own."),
-            place(PlaceKind::Sources, "The originals, read only: a local, removable or network folder."),
-            place(PlaceKind::Tmp, "Where new material lands first, before it's checked."),
-        ]
-        .spacing(18)
-        .into()
+        iced::widget::Column::with_children(PlaceKind::ALL.map(place)).spacing(18).into()
     }
 
     /// The text's size.

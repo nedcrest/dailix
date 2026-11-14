@@ -26,6 +26,15 @@ impl PlaceKind {
     /// In the order they're shown everywhere: the trips first.
     pub const ALL: [PlaceKind; 3] = [PlaceKind::Projects, PlaceKind::Tmp, PlaceKind::Sources];
 
+    /// What it's for, in a line: the welcome's words, and Settings'.
+    pub fn about(self) -> &'static str {
+        match self {
+            PlaceKind::Projects => "Each trip keeps its footage, marks and edits here.",
+            PlaceKind::Tmp => "Footage lands here first, from cards and phones.",
+            PlaceKind::Sources => "The originals are kept here, never changed.",
+        }
+    }
+
     /// What the window calls it (the UI review, 2026-11-14: one name and
     /// one order on every screen).
     pub fn label(self) -> &'static str {
