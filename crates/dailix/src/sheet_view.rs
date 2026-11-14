@@ -80,6 +80,12 @@ pub fn step_from(order: &[String], shown: impl Fn(&str) -> bool, at: Option<&str
     }
 }
 
+/// A rating clicked on a tile: the one clicked, or none when it's the
+/// clip's already (a click toggles; the keys only set, then move on).
+pub fn clicked(now: Option<u8>, asked: Option<u8>) -> Option<u8> {
+    if now == asked { None } else { asked }
+}
+
 /// A day's heading's id, to jump to it.
 pub fn day_id(day: &str) -> String {
     format!("day {day}")
@@ -128,11 +134,9 @@ impl App {
                     self.tile_hover = None;
                 }
             }
-            Message::Rate(clip, rating) => {
-                // The same rating again takes it off, as the sheet does.
+            Message::Rate(clip, asked) => {
                 let now = self.project.as_ref().and_then(|p| p.sheet.clips.get(&clip)).and_then(|c| c.rating).map(rating_value);
-                let rating = if now == rating { None } else { rating };
-                self.change(Op::Clip(ClipOp::Rate { clip, rating }));
+                self.change(Op::Clip(ClipOp::Rate { clip, rating: clicked(now, asked) }));
             }
             Message::DayEdit(day, action) => {
                 if let Some(c) = self.drafts.get_mut(&day) {
@@ -244,7 +248,7 @@ impl App {
         };
         // The three linked, on the tile in hand; else the rating as a word.
         let rating_line: Element<'a, Message> = if near {
-            row![rate(2, "✓", "Take (P); again: unrated"), rate(1, "?", "Think about it (?)"), rate(0, "✕", "Junk (X)")].spacing(1).into()
+            row![rate(2, "✓", "Take (P); a click on it again: unrated"), rate(1, "?", "Think about it (?)"), rate(0, "✕", "Junk (X)")].spacing(1).into()
         } else {
             let (word, r) = match rating {
                 Some(2) => ("✓ take", 2),
@@ -294,6 +298,11 @@ mod tests {
     /// A rating as the sheet keeps it.
     fn r(x: Option<Rating>) -> Option<u8> {
         x.map(rating_value)
+    }
+
+    #[test]
+    fn a_rating_clicked_again_takes_it_off() {
+        assert_eq!((clicked(None, Some(2)), clicked(Some(1), Some(2)), clicked(Some(2), Some(2))), (Some(2), Some(2), None));
     }
 
     #[test]
