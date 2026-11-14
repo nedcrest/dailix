@@ -133,6 +133,10 @@ struct App {
     menu: Option<(menu::Menu, Option<iced::Rectangle>)>,
     /// The About window shown.
     about_open: bool,
+    /// Trips videos are being added to.
+    adding: HashSet<PathBuf>,
+    /// A close refused once for a story not saved: the next one closes.
+    close_anyway: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -198,7 +202,7 @@ enum Message {
     /// (what each became, or why not).
     AddVideos(PathBuf),
     VideosPicked(PathBuf, Option<Vec<PathBuf>>),
-    VideosAdded(Result<Vec<String>, String>),
+    VideosAdded(PathBuf, Result<Vec<crate::add::Said>, String>),
     /// The pointer on an edit's card; its frames made (or why not).
     EditCard(PathBuf, omnix::cards::view::Event),
     EditFrames(PathBuf, Result<(), String>),
@@ -330,7 +334,7 @@ impl App {
             Start::NewTrip => (None, true),
         };
         let settings = Settings::load();
-        let mut app = App { project: None, error: None, notice: None, making: HashSet::new(), voice_makes: HashSet::new(), drafts: HashMap::new(), dirty: HashSet::new(), selected: None, pane: pane::Pane::default(), height: 920.0, scale: settings.scale.unwrap_or(1.0), width: 1500.0, pane_share: settings.pane_share.unwrap_or(pane::SHARE), grip: None, help: false, settings_open: None, at_home: true, card_hover: None, edit_frames: Default::default(), trips: Vec::new(), places: Vec::new(), naming: None, choosing: None, deleting: None, trip_open: None, about: Default::default(), new_trip: None, menu: None, about_open: false, settings };
+        let mut app = App { project: None, error: None, notice: None, making: HashSet::new(), voice_makes: HashSet::new(), drafts: HashMap::new(), dirty: HashSet::new(), selected: None, pane: pane::Pane::default(), height: 920.0, scale: settings.scale.unwrap_or(1.0), width: 1500.0, pane_share: settings.pane_share.unwrap_or(pane::SHARE), grip: None, help: false, settings_open: None, at_home: true, card_hover: None, edit_frames: Default::default(), trips: Vec::new(), places: Vec::new(), naming: None, choosing: None, deleting: None, trip_open: None, about: Default::default(), new_trip: None, menu: None, about_open: false, adding: HashSet::new(), close_anyway: false, settings };
         // A project named opens; else where the window was left (home on
         // the first run, or when it was left there).
         app.refresh_home();
@@ -370,13 +374,16 @@ impl App {
     /// the picked mark's note, the trip's description and tags. On leaving
     /// a project, going home and closing: a story typed was lost without a
     /// word (the UI review, 2026-11-14).
-    pub(super) fn save_typed(&mut self) {
+    /// Whether every story got saved: one that didn't stays typed, and
+    /// what would throw it away waits (the audit, 2026-11-14).
+    pub(super) fn save_typed(&mut self) -> bool {
         let days: Vec<String> = self.dirty.iter().cloned().collect();
         for day in days {
             self.save_story(&day);
         }
         self.save_note();
         self.save_about();
+        self.dirty.is_empty()
     }
 
     /// Day `day`'s story as typed, saved.
@@ -389,7 +396,11 @@ impl App {
     }
 
     fn load(&mut self, root: PathBuf) -> Task<Message> {
-        self.save_typed();
+        // A story that couldn't be saved stays on the page, its error said.
+        if !self.save_typed() {
+            self.at_home = false;
+            return Task::none();
+        }
         let layout = Layout::new(&root);
         if !layout.is_project() {
             self.error = Some(format!("{} isn't a Dailix project (no dailix/project.json)", root.display()));
@@ -563,7 +574,7 @@ impl App {
             Message::ShowFolder(p) => self.error = crate::editor::show(&p).err(),
             Message::Back => return self.back(),
             m @ (Message::Menu(_) | Message::MenuAt(_) | Message::MenuDo(_)) => return self.on_menu(m),
-            m @ (Message::ToOmnix(..) | Message::EmptyDay(..) | Message::Name(_) | Message::NameEdit(_) | Message::NameSave | Message::Home | Message::OpenDay(..) | Message::OpenTrip(_) | Message::TripCard(..) | Message::CardTick | Message::EditCard(..) | Message::EditFrames(..) | Message::AddVideos(_) | Message::VideosPicked(..) | Message::VideosAdded(_) | Message::DeleteAsk(_) | Message::DeleteCounted(..) | Message::DeleteCancel | Message::DeleteConfirm | Message::Deleted(..) | Message::AboutDescription(_) | Message::AboutTags(_) | Message::AboutSave | Message::OpenEdit(_) | Message::ChooseNew | Message::ChooseCancel) => return self.on_home(m),
+            m @ (Message::ToOmnix(..) | Message::EmptyDay(..) | Message::Name(_) | Message::NameEdit(_) | Message::NameSave | Message::Home | Message::OpenDay(..) | Message::OpenTrip(_) | Message::TripCard(..) | Message::CardTick | Message::EditCard(..) | Message::EditFrames(..) | Message::AddVideos(_) | Message::VideosPicked(..) | Message::VideosAdded(..) | Message::DeleteAsk(_) | Message::DeleteCounted(..) | Message::DeleteCancel | Message::DeleteConfirm | Message::Deleted(..) | Message::AboutDescription(_) | Message::AboutTags(_) | Message::AboutSave | Message::OpenEdit(_) | Message::ChooseNew | Message::ChooseCancel) => return self.on_home(m),
             m @ (Message::Settings | Message::SettingsGroup(_) | Message::ChoosePlace(_) | Message::PlaceChosen(..) | Message::CardMotion(_) | Message::UseDefaultPlaces) => return self.on_settings(m),
             m @ (Message::NewTrip | Message::NewTripTitle(_) | Message::NewTripFolder(_) | Message::NewTripDescription(_) | Message::NewTripTags(_) | Message::NewTripMake | Message::NewTripCancel) => return self.on_new_trip(m),
             m @ (Message::Grip | Message::Pointer(_) | Message::Release | Message::Placed(_) | Message::Scale(_)) => return self.on_layout(m),
@@ -600,9 +611,14 @@ impl App {
                     c.perform(action);
                 }
             }
+            // A story that couldn't be saved: said, and the window stays
+            // until it's closed again.
             Message::Closing(window) => {
-                self.save_typed();
-                return iced::window::close(window);
+                if self.save_typed() || self.close_anyway {
+                    return iced::window::close(window);
+                }
+                self.close_anyway = true;
+                self.error = Some(format!("A day's story couldn't be saved ({}). Close again to close anyway.", self.error.take().unwrap_or_default()));
             }
             Message::DaySave(day) => self.save_story(&day),
             Message::Posters(made) => {

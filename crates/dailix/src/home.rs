@@ -114,7 +114,7 @@ impl App {
             Message::ToOmnix(root, day) => self.day_to_omnix(root, day, false),
             Message::EmptyDay(root, day) => self.day_to_omnix(root, day, true),
             m @ (Message::TripCard(..) | Message::EditCard(..) | Message::EditFrames(..) | Message::CardTick) => return self.on_card(m),
-            m @ (Message::AddVideos(_) | Message::VideosPicked(..) | Message::VideosAdded(_)) => return self.on_add(m),
+            m @ (Message::AddVideos(_) | Message::VideosPicked(..) | Message::VideosAdded(..)) => return self.on_add(m),
             m @ (Message::DeleteAsk(_) | Message::DeleteCounted(..) | Message::DeleteCancel | Message::DeleteConfirm | Message::Deleted(..)) => return self.on_delete(m),
             Message::ChooseNew => {
                 if let Some(c) = self.choosing.take() {
@@ -141,7 +141,7 @@ impl App {
                 }
             }
             Message::Home => {
-                self.save_typed();
+                let _ = self.save_typed();
                 self.notice = None;
                 self.pane = pane::Pane::default();
                 self.selected = None;
@@ -221,6 +221,9 @@ impl App {
     /// window's thread (`add::add`, whole files), the trip read again.
     fn on_add(&mut self, message: Message) -> Task<Message> {
         match message {
+            // One add at a time to a trip: two of one file shared its
+            // part file (the audit, 2026-11-14).
+            Message::AddVideos(root) if self.adding.contains(&root) => self.notice = Some("Still adding to this trip: wait till it's done.".into()),
             Message::AddVideos(root) => {
                 return Task::perform(
                     async move {
@@ -233,9 +236,12 @@ impl App {
             Message::VideosPicked(root, Some(files)) if !files.is_empty() => {
                 self.notice = Some(format!("Adding {} to «{}»…", library::count(files.len(), "video"), dailix_sheet::project::title(&root)));
                 let picks: Vec<crate::add::Pick> = files.into_iter().map(|file| crate::add::Pick { file, span: None }).collect();
-                return Task::perform(super::blocking(move || crate::add::add(&root, &picks, None).map_err(|e| e.to_string())), Message::VideosAdded);
+                self.adding.insert(root.clone());
+                let done = root.clone();
+                return Task::perform(super::blocking(move || crate::add::add(&root, &picks, None).map_err(|e| e.to_string())), move |said| Message::VideosAdded(done.clone(), said));
             }
-            Message::VideosAdded(done) => {
+            Message::VideosAdded(root, done) => {
+                self.adding.remove(&root);
                 self.notice = done.as_ref().ok().map(|said| crate::add::summary(said));
                 self.error = done.err();
                 self.refresh_home();

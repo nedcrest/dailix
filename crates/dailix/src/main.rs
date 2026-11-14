@@ -302,8 +302,13 @@ fn trip_cmd(cmd: Command) -> Result<(), Box<dyn std::error::Error>> {
         }
         Command::Add { trip, files, day } => {
             let picks = files.iter().map(|f| add::parse_pick(f)).collect::<Result<Vec<_>, _>>()?;
-            for line in add::add(&trip, &picks, day.as_deref())? {
+            let said = add::add(&trip, &picks, day.as_deref())?;
+            for line in &said {
                 println!("{line}");
+            }
+            let failed = said.iter().filter(|s| matches!(s.what, add::What::Failed(_))).count();
+            if failed > 0 {
+                return Err(format!("{failed} not added").into());
             }
             Ok(())
         }
