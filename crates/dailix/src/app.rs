@@ -113,7 +113,7 @@ struct App {
     places: Vec<crate::library::Place>,
     /// A project being named on the home view: its folder, the name typed.
     naming: Option<(PathBuf, String)>,
-    /// «→ Omnix» or «Empty day» asked on a day that has such videos
+    /// «→ Omnix» or «Empty edit» asked on a day that has such videos
     /// already: which to open, or a new one (Omnix gap 104).
     choosing: Option<home::Choosing>,
     /// A trip or an edit asked about before it goes to the trash, and the
@@ -806,7 +806,7 @@ impl App {
             tooltip::Position::Bottom,
         );
         let empty = tip(
-            ui::act("Empty day", ui::Kind::Secondary).on_press(Message::EmptyDay(p.footage.layout.root.clone(), Some(day.day.clone()))),
+            ui::act("Empty edit", ui::Kind::Secondary).on_press(Message::EmptyDay(p.footage.layout.root.clone(), Some(day.day.clone()))),
             text("An empty edit of this day in Omnix, its clips in the bin, to build the idea afresh"),
             tooltip::Position::Bottom,
         );

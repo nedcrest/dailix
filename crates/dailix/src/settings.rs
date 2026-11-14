@@ -23,8 +23,20 @@ pub enum PlaceKind {
 }
 
 impl PlaceKind {
-    pub const ALL: [PlaceKind; 3] = [PlaceKind::Tmp, PlaceKind::Projects, PlaceKind::Sources];
+    /// In the order they're shown everywhere: the trips first.
+    pub const ALL: [PlaceKind; 3] = [PlaceKind::Projects, PlaceKind::Tmp, PlaceKind::Sources];
 
+    /// What the window calls it (the UI review, 2026-11-14: one name and
+    /// one order on every screen).
+    pub fn label(self) -> &'static str {
+        match self {
+            PlaceKind::Projects => "Trips",
+            PlaceKind::Tmp => "TMP",
+            PlaceKind::Sources => "Sources",
+        }
+    }
+
+    /// Its name on the command line and in its default folder's.
     pub fn name(self) -> &'static str {
         match self {
             PlaceKind::Tmp => "TMP",
@@ -116,7 +128,7 @@ mod tests {
     #[test]
     fn each_place_is_set_and_read_by_its_kind() {
         let mut s = Settings::default();
-        for (k, p) in PlaceKind::ALL.into_iter().zip(["/t", "/p", "/s"]) {
+        for (k, p) in PlaceKind::ALL.into_iter().zip(["/p", "/t", "/s"]) {
             s.set_place(k, p.into());
             assert_eq!(s.place(k), Some(p.into()));
         }

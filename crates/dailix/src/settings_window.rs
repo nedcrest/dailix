@@ -44,7 +44,7 @@ impl App {
                 let start = self.settings.place(kind);
                 return Task::perform(
                     async move {
-                        let mut d = rfd::AsyncFileDialog::new().set_title(format!("The {} folder", kind.name()));
+                        let mut d = rfd::AsyncFileDialog::new().set_title(format!("The {} folder", kind.label()));
                         if let Some(s) = start {
                             d = d.set_directory(s);
                         }
@@ -107,7 +107,7 @@ impl App {
         let place = |kind: PlaceKind, what: &'static str| -> Element<'_, Message> {
             let folder = self.settings.place(kind).map_or_else(|| "Not set".to_owned(), |p| p.display().to_string());
             column![
-                text(kind.name()).size(16),
+                text(kind.label()).size(16),
                 text(what).size(13).style(text::secondary),
                 row![text(folder).size(14).width(Length::Fill), ui::act("Choose…", ui::Kind::Secondary).on_press(Message::ChoosePlace(kind))].spacing(8).align_y(Alignment::Center),
             ]

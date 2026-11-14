@@ -100,8 +100,8 @@ impl App {
         ]
         .spacing(8);
         body = body.push(match place {
-            Some(p) => Element::from(column![label("In the projects place"), text(p).size(13)].spacing(2)),
-            None => text("No projects place set: choose it in Settings first.").size(13).style(text::danger).into(),
+            Some(p) => Element::from(column![label("In the Trips folder"), text(p).size(13)].spacing(2)),
+            None => text("No Trips folder set: choose it in Settings first.").size(13).style(text::danger).into(),
         });
         let buttons = row![
             space().width(Length::Fill),

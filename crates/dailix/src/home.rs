@@ -47,7 +47,7 @@ fn changed(edit: &Path) -> String {
 }
 
 impl App {
-    /// «→ Omnix» (`empty`: «Empty day») on a day, or the trip (no day):
+    /// «→ Omnix» (`empty`: «Empty edit») on a day, or the trip (no day):
     /// its videos made so before offered first, else a new one made and
     /// opened (the user, 2026-11-11: each click made another copy).
     fn day_to_omnix(&mut self, root: PathBuf, day: Option<String>, empty: bool) {
@@ -352,7 +352,7 @@ impl App {
         match library::first_run(&self.places, self.trips.len()) {
             Some(library::FirstRun::Welcome) => page = page.push(self.welcome()),
             Some(library::FirstRun::Say(said, choose)) => {
-                let choose = choose.map(|kind| ui::act(format!("Choose the {} folder…", kind.name()), ui::Kind::Primary).on_press(Message::ChoosePlace(kind)));
+                let choose = choose.map(|kind| ui::act(format!("Choose the {} folder…", kind.label()), ui::Kind::Primary).on_press(Message::ChoosePlace(kind)));
                 page = page.push(column![text(said).size(15)].push(choose).spacing(10).max_width(640));
             }
             None => {}
@@ -363,7 +363,7 @@ impl App {
                 // A trip needs the projects place: none yet, the first run's
                 // button above chooses it.
                 let place = self.places.iter().any(|p| p.kind == crate::settings::PlaceKind::Projects && p.online);
-                let new = place.then(|| super::tip(ui::act("+ New trip", ui::Kind::Primary).on_press(Message::NewTrip), text("A new trip in the projects place, in the fixed layout (Ctrl+N)"), tooltip::Position::Bottom));
+                let new = place.then(|| super::tip(ui::act("+ New trip", ui::Kind::Primary).on_press(Message::NewTrip), text("A new trip in the Trips folder, in the fixed layout (Ctrl+N)"), tooltip::Position::Bottom));
                 page = page.push(new).push(iced::widget::row(self.trips.iter().map(|t| self.trip_card(t))).spacing(14).wrap().vertical_spacing(14));
             }
         }
@@ -375,16 +375,16 @@ impl App {
     /// 60 % of the window up to 760 px; the folders as one list, a row each
     /// (the trips' first, the others marked optional): its name, its folder
     /// in monospace at full brightness (cut in the middle, «default» and
-    /// «will be made» beside it), what it's for dimmed under it, «Change…»
+    /// «will be made» beside it), what it's for dimmed under it, «Choose…»
     /// on the right; one button takes them all.
     fn welcome(&self) -> Element<'_, Message> {
         use crate::settings::PlaceKind;
         let home = std::env::home_dir().unwrap_or_default();
         let row_of = |kind: PlaceKind| -> Element<'_, Message> {
-            let (label, hint, optional) = match kind {
-                PlaceKind::Projects => ("Trips", "Each trip keeps its footage, marks and edits here.", false),
-                PlaceKind::Tmp => ("TMP", "Footage lands here first, from cards and phones.", true),
-                PlaceKind::Sources => ("Sources", "The originals are kept here, never changed.", true),
+            let (hint, optional) = match kind {
+                PlaceKind::Projects => ("Each trip keeps its footage, marks and edits here.", false),
+                PlaceKind::Tmp => ("Footage lands here first, from cards and phones.", true),
+                PlaceKind::Sources => ("The originals are kept here, never changed.", true),
             };
             let chosen = self.places.iter().find(|p| p.kind == kind).and_then(|p| p.path.clone());
             let folder = chosen.clone().unwrap_or_else(|| library::default_place(kind, &home));
@@ -395,10 +395,10 @@ impl App {
             if !folder.is_dir() {
                 tags.push("will be made");
             }
-            let title = row![text(label).size(18)].push(optional.then(|| text("optional").size(12).style(text::secondary))).spacing(8).align_y(Alignment::Center);
+            let title = row![text(kind.label()).size(18)].push(optional.then(|| text("optional").size(12).style(text::secondary))).spacing(8).align_y(Alignment::Center);
             let path = row![text(library::middle(&library::tilde(&folder, &home), 48)).size(15).font(iced::Font::MONOSPACE)].push((!tags.is_empty()).then(|| text(tags.join(" · ")).size(12).style(text::secondary))).spacing(10).align_y(Alignment::Center);
             let words = column![title, path, text(hint).size(13).style(text::secondary)].spacing(4).width(Length::Fill);
-            let change = ui::act("Change…", ui::Kind::Secondary).on_press(Message::ChoosePlace(kind));
+            let change = ui::act("Choose…", ui::Kind::Secondary).on_press(Message::ChoosePlace(kind));
             container(row![words, change].spacing(16).align_y(Alignment::Center)).padding([16, 20]).width(Length::Fill).into()
         };
         let line = || container(space().height(1).width(Length::Fill)).style(|_: &Theme| container::Style { background: Some(iced::Color { a: 0.08, ..iced::Color::WHITE }.into()), ..Default::default() });
@@ -434,10 +434,10 @@ impl App {
     fn places_strip(&self) -> Element<'_, Message> {
         let chip = |p: &Place| -> Element<'_, Message> {
             let state = match (p.online, p.free) {
-                (true, Some(f)) => format!("● {} · {} free", p.kind.name(), gb(f)),
-                (true, None) => format!("● {}", p.kind.name()),
-                (false, _) if p.path.is_none() => format!("○ {} · not set", p.kind.name()),
-                (false, _) => format!("○ {} · offline", p.kind.name()),
+                (true, Some(f)) => format!("● {} · {} free", p.kind.label(), gb(f)),
+                (true, None) => format!("● {}", p.kind.label()),
+                (false, _) if p.path.is_none() => format!("○ {} · not set", p.kind.label()),
+                (false, _) => format!("○ {} · offline", p.kind.label()),
             };
             let path = p.path.as_ref().map(|p| p.display().to_string()).unwrap_or_default();
             let online = p.online;
@@ -449,7 +449,7 @@ impl App {
                 s
             });
             // A click chooses its folder (user, 2026-11-07), as Settings does.
-            let hint = if path.is_empty() { format!("Choose the {} folder", p.kind.name()) } else { format!("{path}\nClick to choose another folder") };
+            let hint = if path.is_empty() { format!("Choose the {} folder", p.kind.label()) } else { format!("{path}\nClick to choose another folder") };
             super::tip(button(chip).padding(0).style(button::text).on_press(Message::ChoosePlace(p.kind)), text(hint), tooltip::Position::Bottom)
         };
         row(self.places.iter().map(chip)).spacing(8).align_y(Alignment::Center).into()
@@ -541,7 +541,7 @@ impl App {
         let small = |label: &'static str, msg: Message, hint: &'static str| super::tip(ui::small(label, ui::Kind::Secondary).on_press(msg), text(hint), tooltip::Position::Bottom);
         let actions = row![
             small("→ Omnix", Message::ToOmnix(trip.root.clone(), Some(d.day.clone())), "An edit of this day from its marking, opened in Omnix"),
-            small("Empty day", Message::EmptyDay(trip.root.clone(), Some(d.day.clone())), "An empty edit of this day in Omnix, its clips in the bin"),
+            small("Empty edit", Message::EmptyDay(trip.root.clone(), Some(d.day.clone())), "An empty edit of this day in Omnix, its clips in the bin"),
         ]
         .spacing(6);
         container(column![open, actions].spacing(6).width(CARD)).padding(6).style(container::rounded_box).into()

@@ -190,7 +190,7 @@ pub fn first_run(places: &[Place], trips: usize) -> Option<FirstRun> {
     let projects = places.iter().find(|p| p.kind == PlaceKind::Projects)?;
     Some(match (&projects.path, projects.online) {
         (None, _) => FirstRun::Welcome,
-        (Some(p), false) => FirstRun::Say(format!("The projects folder {} isn't there: is its disk plugged in?", p.display()), Some(PlaceKind::Projects)),
+        (Some(p), false) => FirstRun::Say(format!("The Trips folder {} isn't there: is its disk plugged in?", p.display()), Some(PlaceKind::Projects)),
         (Some(p), true) => FirstRun::Say(format!("No trips in {} yet: + New trip makes one.", p.display()), None),
     })
 }
@@ -305,8 +305,8 @@ mod tests {
 
         let s = Settings { projects: Some(projects.clone()), sources: Some(crate::settings::Sources::Folder { path: base.join("gone") }), ..Default::default() };
         let p = places(&s);
-        assert_eq!(p.iter().map(|p| (p.kind.name(), p.online)).collect::<Vec<_>>(), [("TMP", false), ("projects", true), ("sources", false)]);
-        assert!(p[1].free.is_some_and(|f| f > 0));
+        assert_eq!(p.iter().map(|p| (p.kind.name(), p.online)).collect::<Vec<_>>(), [("projects", true), ("TMP", false), ("sources", false)]);
+        assert!(p[0].free.is_some_and(|f| f > 0));
         std::fs::remove_dir_all(&base).unwrap();
     }
 }
