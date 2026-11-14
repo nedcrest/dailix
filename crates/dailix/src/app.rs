@@ -429,6 +429,8 @@ impl App {
     }
 
     fn load(&mut self, root: PathBuf) -> Task<Message> {
+        // Keys are day/file: a hover from another trip could match a tile.
+        self.tile_hover = None;
         // A story that couldn't be saved stays on the page, its error said.
         if !self.save_typed() {
             self.at_home = false;

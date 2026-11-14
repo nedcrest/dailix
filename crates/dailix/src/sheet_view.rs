@@ -98,6 +98,11 @@ impl App {
     /// The sheet's own messages: the filter, the pointer on a tile, a
     /// rating by a click, a story typed and resting, the days list.
     pub(super) fn on_sheet(&mut self, message: Message) -> Task<Message> {
+        // A tile hidden by a filter or a rating sends no Exit (iced's
+        // mouse_area): the hover goes with them (the audit, 2026-11-14).
+        if matches!(message, Message::Filter(_) | Message::Rate(..)) {
+            self.tile_hover = None;
+        }
         match message {
             Message::Filter(f) => {
                 self.filter = f;

@@ -144,6 +144,7 @@ impl App {
             m @ (Message::Name(_) | Message::NameEdit(_) | Message::NameSave) => return self.on_name(m),
             Message::Home => {
                 let _ = self.save_typed();
+                self.tile_hover = None;
                 self.notice = None;
                 self.pane = pane::Pane::default();
                 self.selected = None;
