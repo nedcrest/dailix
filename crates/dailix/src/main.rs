@@ -2,6 +2,7 @@
 //! the command line for tests and an AI: the same core under both
 //! (`docs/CONTEXT.md`).
 
+mod add;
 mod app;
 mod help;
 mod import;
@@ -42,6 +43,17 @@ enum Command {
         /// Comma-separated.
         #[arg(long, default_value = "")]
         tags: String,
+    },
+    /// Videos added to a trip, each under the day it was filmed (its
+    /// name's date, else the file's), whole or a span:
+    /// `FILE`, `FILE@all`, `FILE@0:05-0:20`. The originals are only read.
+    Add {
+        trip: PathBuf,
+        #[arg(required = true)]
+        files: Vec<String>,
+        /// The day to put them under instead (YYYY-MM-DD).
+        #[arg(long)]
+        day: Option<String>,
     },
     /// The contact sheet's marking (a project's `dailix/sheet.json`).
     #[command(subcommand)]
@@ -216,19 +228,17 @@ fn voice_cmd(cmd: VoiceCmd) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
-    let cmd = match cli.command.expect("the window is opened in main") {
-        Command::Open { .. } | Command::NewTrip { title: None, .. } => unreachable!("the window is opened in main"),
+/// The places and the trips in them: a new trip, the places set, an old project brought in, the trips listed.
+fn places_cmd(cmd: Command) -> Result<(), Box<dyn std::error::Error>> {
+    match cmd {
         Command::NewTrip { title: Some(title), folder, description, tags } => {
             let place = settings::Settings::load().projects.ok_or("no projects place set (dailix places --projects …)")?;
             let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs());
             let folder = folder.unwrap_or_else(|| dailix_sheet::project::trip_folder(&dailix_sheet::project::month_of(now), &title));
             let about = dailix_sheet::project::About { description, tags: dailix_sheet::project::parse_tags(&tags) };
             println!("{}", dailix_sheet::project::new_trip(&place, &folder, &title, &about)?.display());
-            return Ok(());
+            Ok(())
         }
-        Command::Sheet(cmd) => cmd,
-        Command::Voice(cmd) => return voice_cmd(cmd),
         Command::Places { tmp, projects, sources } => {
             let mut s = settings::Settings::load();
             let changed = tmp.is_some() || projects.is_some() || sources.is_some();
@@ -239,7 +249,7 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
                 s.save()?;
             }
             print!("{}", s.describe());
-            return Ok(());
+            Ok(())
         }
         Command::ImportLegacy { old, name, dry_run } => {
             let projects = settings::Settings::load().projects.ok_or("set the projects place first: dailix places --projects <folder>")?;
@@ -260,7 +270,7 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
                 }
             })?;
             println!("done: {}", plan.layout.root.display());
-            return Ok(());
+            Ok(())
         }
         Command::Trips { projects } => {
             let projects = projects.or(settings::Settings::load().projects).ok_or("no projects place: dailix places --projects <folder>")?;
@@ -269,8 +279,15 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
             for s in skipped {
                 eprintln!("skipped: {s}");
             }
-            return Ok(());
+            Ok(())
         }
+        _ => unreachable!("places_cmd is given only its own commands"),
+    }
+}
+
+/// One trip: its title, videos added, its about, its old edits tidied.
+fn trip_cmd(cmd: Command) -> Result<(), Box<dyn std::error::Error>> {
+    match cmd {
         Command::Title { project, title } => {
             if !dailix_sheet::Layout::new(&project).is_project() {
                 return Err(format!("not a Dailix project: {}", project.display()).into());
@@ -279,7 +296,14 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
                 dailix_sheet::project::set_title(&project, &t)?;
             }
             println!("{}", dailix_sheet::project::title(&project));
-            return Ok(());
+            Ok(())
+        }
+        Command::Add { trip, files, day } => {
+            let picks = files.iter().map(|f| add::parse_pick(f)).collect::<Result<Vec<_>, _>>()?;
+            for line in add::add(&trip, &picks, day.as_deref())? {
+                println!("{line}");
+            }
+            Ok(())
         }
         Command::About { project, description, tags } => {
             if !dailix_sheet::Layout::new(&project).is_project() {
@@ -291,7 +315,7 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
                 dailix_sheet::project::set_about(&project, &about)?;
             }
             println!("description: {}\ntags: {}", about.description, about.tags.join(", "));
-            return Ok(());
+            Ok(())
         }
         Command::TidyEdits { project, apply } => {
             use dailix_sheet::project::Tidy;
@@ -328,8 +352,19 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
                 std::fs::remove_dir(&old)?;
                 println!("gone   {}", old.display());
             }
-            return Ok(());
+            Ok(())
         }
+        _ => unreachable!("trip_cmd is given only its own commands"),
+    }
+}
+
+fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
+    let cmd = match cli.command.expect("the window is opened in main") {
+        Command::Open { .. } | Command::NewTrip { title: None, .. } => unreachable!("the window is opened in main"),
+        Command::Sheet(cmd) => cmd,
+        Command::Voice(cmd) => return voice_cmd(cmd),
+        c @ (Command::ImportLegacy { .. } | Command::NewTrip { .. } | Command::Places { .. } | Command::Trips { .. }) => return places_cmd(c),
+        c @ (Command::About { .. } | Command::Add { .. } | Command::TidyEdits { .. } | Command::Title { .. }) => return trip_cmd(c),
         Command::Install => {
             for f in install::install()? {
                 println!("{}", f.display());

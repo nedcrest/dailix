@@ -106,7 +106,7 @@ pub fn plan(old: &Path, new: &Path) -> Result<Plan, Error> {
 }
 
 /// Copies `c`, unless it's there already, whole.
-fn copy(c: &Copy) -> std::io::Result<bool> {
+pub(crate) fn copy(c: &Copy) -> std::io::Result<bool> {
     if std::fs::metadata(&c.to).is_ok_and(|m| m.len() == c.size) {
         return Ok(false);
     }
