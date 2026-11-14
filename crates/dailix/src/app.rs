@@ -8,8 +8,12 @@
 mod pane;
 #[path = "pane_voice.rs"]
 mod pane_voice;
+#[path = "bar.rs"]
+mod bar;
 #[path = "home.rs"]
 mod home;
+#[path = "menu.rs"]
+mod menu;
 #[path = "settings_window.rs"]
 mod settings_window;
 #[path = "new_trip.rs"]
@@ -125,6 +129,10 @@ struct App {
     about: (String, String),
     /// The new trip's form, while open.
     new_trip: Option<new_trip::Draft>,
+    /// The menu open, and where its button is once found.
+    menu: Option<(menu::Menu, Option<iced::Rectangle>)>,
+    /// The About window shown.
+    about_open: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -225,6 +233,18 @@ enum Message {
     /// The player at the right.
     Pane(pane::PaneMsg),
     Resized(iced::Size),
+    /// A menu opened (none: closed); its button found on the screen (or
+    /// not); one of its entries chosen.
+    Menu(Option<menu::Menu>),
+    MenuAt(Option<iced::Rectangle>),
+    MenuDo(Box<Message>),
+    /// One step back: from the contact sheet to its trip's page, from a
+    /// trip's page to the trips.
+    Back,
+    /// The About window shown or hidden.
+    About,
+    /// A trip's or an edit's folder shown in the file manager.
+    ShowFolder(PathBuf),
 }
 
 /// The tiles' list: its id, for scrolling it.
@@ -310,7 +330,7 @@ impl App {
             Start::NewTrip => (None, true),
         };
         let settings = Settings::load();
-        let mut app = App { project: None, error: None, notice: None, making: HashSet::new(), voice_makes: HashSet::new(), drafts: HashMap::new(), dirty: HashSet::new(), selected: None, pane: pane::Pane::default(), height: 920.0, scale: settings.scale.unwrap_or(1.0), width: 1500.0, pane_share: settings.pane_share.unwrap_or(pane::SHARE), grip: None, help: false, settings_open: None, at_home: true, card_hover: None, edit_frames: Default::default(), trips: Vec::new(), places: Vec::new(), naming: None, choosing: None, deleting: None, trip_open: None, about: Default::default(), new_trip: None, settings };
+        let mut app = App { project: None, error: None, notice: None, making: HashSet::new(), voice_makes: HashSet::new(), drafts: HashMap::new(), dirty: HashSet::new(), selected: None, pane: pane::Pane::default(), height: 920.0, scale: settings.scale.unwrap_or(1.0), width: 1500.0, pane_share: settings.pane_share.unwrap_or(pane::SHARE), grip: None, help: false, settings_open: None, at_home: true, card_hover: None, edit_frames: Default::default(), trips: Vec::new(), places: Vec::new(), naming: None, choosing: None, deleting: None, trip_open: None, about: Default::default(), new_trip: None, menu: None, about_open: false, settings };
         // A project named opens; else where the window was left (home on
         // the first run, or when it was left there).
         app.refresh_home();
@@ -342,13 +362,7 @@ impl App {
     }
 
     fn title(&self) -> String {
-        if self.at_home {
-            return "Dailix".to_owned();
-        }
-        match &self.project {
-            Some(p) => format!("Dailix · {}", dailix_sheet::project::title(&p.footage.layout.root)),
-            None => "Dailix".to_owned(),
-        }
+        bar::title(&self.place())
     }
 
     /// Opens the project at `root` and starts making its missing posters.
@@ -545,6 +559,10 @@ impl App {
                 self.width = s.width;
             }
             Message::Help => self.help = !self.help,
+            Message::About => self.about_open = !self.about_open,
+            Message::ShowFolder(p) => self.error = crate::editor::show(&p).err(),
+            Message::Back => return self.back(),
+            m @ (Message::Menu(_) | Message::MenuAt(_) | Message::MenuDo(_)) => return self.on_menu(m),
             m @ (Message::ToOmnix(..) | Message::EmptyDay(..) | Message::Name(_) | Message::NameEdit(_) | Message::NameSave | Message::Home | Message::OpenDay(..) | Message::OpenTrip(_) | Message::TripCard(..) | Message::CardTick | Message::EditCard(..) | Message::EditFrames(..) | Message::AddVideos(_) | Message::VideosPicked(..) | Message::VideosAdded(_) | Message::DeleteAsk(_) | Message::DeleteCounted(..) | Message::DeleteCancel | Message::DeleteConfirm | Message::Deleted(..) | Message::AboutDescription(_) | Message::AboutTags(_) | Message::AboutSave | Message::OpenEdit(_) | Message::ChooseNew | Message::ChooseCancel) => return self.on_home(m),
             m @ (Message::Settings | Message::SettingsGroup(_) | Message::ChoosePlace(_) | Message::PlaceChosen(..) | Message::CardMotion(_) | Message::UseDefaultPlaces) => return self.on_settings(m),
             m @ (Message::NewTrip | Message::NewTripTitle(_) | Message::NewTripFolder(_) | Message::NewTripDescription(_) | Message::NewTripTags(_) | Message::NewTripMake | Message::NewTripCancel) => return self.on_new_trip(m),
@@ -605,9 +623,9 @@ impl App {
     /// audit, 2026-11-12: Esc didn't close it), the new trip's form (its
     /// fields take what they type), Settings. Whether one was open.
     fn over_the_page(&mut self, esc: bool) -> bool {
-        let open = self.help || self.choosing.is_some() || self.new_trip.is_some() || self.settings_open.is_some() || self.deleting.is_some();
+        let open = self.help || self.about_open || self.menu.is_some() || self.choosing.is_some() || self.new_trip.is_some() || self.settings_open.is_some() || self.deleting.is_some();
         if open && esc {
-            (self.help, self.choosing, self.new_trip, self.settings_open, self.deleting) = (false, None, None, None, None);
+            (self.help, self.about_open, self.menu, self.choosing, self.new_trip, self.settings_open, self.deleting) = (false, false, None, None, None, None, None);
         }
         open
     }
@@ -665,6 +683,9 @@ impl App {
                 Physical::Code(Code::Digit0 | Code::Numpad0) => return self.update(Message::Scale(0)),
                 _ => {}
             }
+        }
+        if mods.alt() && matches!(key.as_ref(), Key::Named(Named::ArrowLeft)) {
+            return self.back();
         }
         if mods.command() || mods.alt() || self.at_home {
             return Task::none();
@@ -728,7 +749,7 @@ impl App {
     /// always there (empty when hidden), so the window under it keeps its
     /// state (a scroll, a field's focus) when the list comes up.
     fn view(&self) -> Element<'_, Message> {
-        iced::widget::stack![self.page(), self.settings_layer(), self.new_trip_layer(), self.choose_layer(), self.delete_layer(), self.help_layer()].into()
+        iced::widget::stack![self.page(), self.menu_layer(), self.settings_layer(), self.new_trip_layer(), self.choose_layer(), self.delete_layer(), self.help_layer(), self.about_layer()].into()
     }
 
     fn help_layer(&self) -> Element<'_, Message> {
@@ -757,20 +778,7 @@ impl App {
     }
 
     fn page(&self) -> Element<'_, Message> {
-        let open = ui::act("Open…", ui::Kind::Secondary).on_press(Message::Open);
-        let size = |label: &'static str, step: i32, hint: &'static str| tip(ui::act(label, ui::Kind::Secondary).on_press(Message::Scale(step)), text(hint), tooltip::Position::Bottom);
-        let sizes = row![size("A−", -1, "Smaller text (Ctrl+−)"), text(format!("{:.0}%", self.scale * 100.0)).size(12), size("A+", 1, "Bigger text (Ctrl+=)")].spacing(6).align_y(Alignment::Center);
-        let mut top = row![text(self.title()).size(20), space().width(Length::Fill)].spacing(12).align_y(Alignment::Center);
-        if !self.making.is_empty() {
-            top = top.push(text(format!("making posters: {} left", self.making.len())).size(13));
-        }
-        let keys = tip(ui::act("Keys", ui::Kind::Secondary).on_press(Message::Help), text("The keys and the mouse (F1)"), tooltip::Position::Bottom);
-        let settings = tip(ui::act("Settings", ui::Kind::Secondary).on_press(Message::Settings), text("Places and look (Ctrl+,)"), tooltip::Position::Bottom);
-        let top = top.push(sizes).push(keys).push(settings).push(open);
-        // Home first in the bar, always; lit while it's shown.
-        let home = ui::act("⌂ Home", if self.at_home { ui::Kind::Primary } else { ui::Kind::Secondary }).on_press(Message::Home);
-        let top = row![tip(home, text("The projects and their days"), tooltip::Position::Bottom), top].spacing(10).align_y(Alignment::Center);
-        let mut page = column![container(top).padding([10, 16])];
+        let mut page = column![self.top_bar()];
         if let Some(e) = &self.error {
             page = page.push(container(text(e.clone()).size(13).style(text::danger)).padding([0, 16]));
         }

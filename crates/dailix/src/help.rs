@@ -51,9 +51,11 @@ pub const GROUPS: [(&str, &[(&str, &str)]); 5] = [
             ("Ctrl+= / Ctrl+−", "bigger / smaller text"),
             ("Ctrl+0", "text as it was"),
             ("drag the pane's edge", "a wider player (to half the window)"),
+            ("Alt+←", "back: the sheet to its trip, a trip to the trips"),
             ("Ctrl+N", "a new trip"),
             ("Ctrl+,", "settings: the places, the look"),
             ("F1", "this list"),
+            ("Esc", "close a menu or a window over the page"),
         ],
     ),
 ];
