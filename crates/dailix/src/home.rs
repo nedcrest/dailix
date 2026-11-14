@@ -197,7 +197,7 @@ impl App {
         let note = if self.edit_frames.making(edit) { "making its frames…" } else { note };
         let info = column![text(dailix_sheet::project::edit_name(edit)).size(14)].push((!note.is_empty()).then(|| text(note.to_owned()).size(12).style(text::secondary))).spacing(2);
         let to = edit.to_owned();
-        omnix::cards::view::card(self.edit_frames.get(edit), hovered, EDIT_CARD, false, info.into(), move |e| Message::EditCard(to.clone(), e))
+        omnix::cards::view::card(self.edit_frames.get(edit), hovered, EDIT_CARD, false, info.into(), 38.0, move |e| Message::EditCard(to.clone(), e))
     }
 
     /// The trip's page shown, its description and tags ready to edit.
@@ -288,7 +288,7 @@ impl App {
         // changing while hovered; sheets behind, a trip being a collection.
         let hovered = self.card_hover.as_ref().filter(|(r, _)| *r == trip.root).map(|(_, since)| Some(since.elapsed()));
         let root = trip.root.clone();
-        omnix::cards::view::card(&trip.frames, hovered, TRIP_CARD, true, info.into(), move |e| Message::TripCard(root.clone(), e))
+        omnix::cards::view::card(&trip.frames, hovered, TRIP_CARD, true, info.into(), 84.0, move |e| Message::TripCard(root.clone(), e))
     }
 
     /// A trip's page: its name, dates and whole-trip edits for Omnix; its
