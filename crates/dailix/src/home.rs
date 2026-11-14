@@ -175,9 +175,15 @@ impl App {
                 self.save_about();
                 self.at_home = false;
                 let open = if self.project.as_ref().map(|p| &p.footage.layout.root) != Some(&root) { self.load(root) } else { Task::none() };
-                let first = self.project.as_ref().and_then(|p| p.footage.days.iter().find(|d| d.day == day)).and_then(|d| d.clips.first()).map(|c| c.key.clone());
+                // The day's first clip the filter shows (a hidden one has no
+                // tile to scroll to: the audit, 2026-11-14), and its heading
+                // brought up either way.
+                let first = self.project.as_ref().and_then(|p| {
+                    let d = p.footage.days.iter().find(|d| d.day == day)?;
+                    d.clips.iter().find(|c| self.filter.shows(Self::rating_of(p, &c.key))).map(|c| c.key.clone())
+                });
                 let pick = first.map_or_else(Task::none, |k| self.select(k));
-                return Task::batch([open, pick]);
+                return Task::batch([open, pick, Task::done(Message::JumpDay(day))]);
             }
             _ => {}
         }
