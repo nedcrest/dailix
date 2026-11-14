@@ -87,6 +87,9 @@ enum Command {
     },
     /// The icon and a desktop entry, in the menu and on the desktop (Linux).
     Install,
+    /// Every key and gesture of the window, as Markdown tables (the
+    /// guide's reference page, the F1 list).
+    Keys,
     /// The trips in the projects place (or in the folder given) as the home
     /// view sums them up: a line per trip and per day.
     Trips { projects: Option<PathBuf> },
@@ -372,6 +375,10 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
         Command::Voice(cmd) => return voice_cmd(cmd),
         c @ (Command::ImportLegacy { .. } | Command::NewTrip { .. } | Command::Places { .. } | Command::Trips { .. }) => return places_cmd(c),
         c @ (Command::About { .. } | Command::Add { .. } | Command::TidyEdits { .. } | Command::Title { .. }) => return trip_cmd(c),
+        Command::Keys => {
+            print!("{}", help::page());
+            return Ok(());
+        }
         Command::Install => {
             for f in install::install()? {
                 println!("{}", f.display());

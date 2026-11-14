@@ -1,5 +1,7 @@
 //! F1: the keys and the mouse, a group each, over the window. The window
 //! itself carries no help text (Omnix's rule): this list, and tooltips.
+//! The same list is the guide's reference page (`dailix keys`, kept in
+//! Omnix's `docs/guide/keys-dailix.md`, checked by a test).
 
 /// The groups: a title and its lines (keys, what they do).
 pub const GROUPS: [(&str, &[(&str, &str)]); 5] = [
@@ -59,3 +61,23 @@ pub const GROUPS: [(&str, &[(&str, &str)]); 5] = [
         ],
     ),
 ];
+
+/// The guide's reference page, as Omnix's own is made.
+pub fn page() -> String {
+    omnix::keys::markdown("Keys: Dailix", "Made by `dailix keys`", &GROUPS)
+}
+
+#[cfg(test)]
+mod tests {
+    /// The guide (in Omnix's repo, beside this one's, as CI checks it out)
+    /// shows this list as it is now: `OMNIX_BLESS=1 cargo test` writes it.
+    #[test]
+    fn the_guides_keys_page_is_the_programs_list() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../omnix-360-studio/docs/guide/keys-dailix.md");
+        let page = super::page();
+        if std::env::var_os("OMNIX_BLESS").is_some() {
+            std::fs::write(&path, &page).unwrap();
+        }
+        assert_eq!(std::fs::read_to_string(&path).unwrap_or_default(), page, "{} is behind the keys: OMNIX_BLESS=1 cargo test writes it", path.display());
+    }
+}
