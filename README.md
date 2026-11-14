@@ -6,6 +6,8 @@ takes it off cards and phones, lets you look through it and mark what's
 worth keeping, files the originals away, and hands the chosen material to
 an editor (Omnix, `../omnix-360-studio`). Rust, built the way Omnix is.
 
+![Dailix: a trip opened from its card, a day's clips rated with a key each (a green line for a take, amber for a maybe), the filter left with the unrated ones, back to the trip and its «→ Omnix» menu.](docs/img/dailix-hero.gif)
+
 Status: the contact sheet works (Home of trip cards, a trip's page,
 days, rating, segments, flags, the player, «→ Omnix»), on a core with a
 command line; it replaces footage-agent's web contact sheet. A trip holds
