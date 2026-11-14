@@ -139,6 +139,10 @@ struct App {
     adding: HashSet<PathBuf>,
     /// A close refused once for a story not saved: the next one closes.
     close_anyway: bool,
+    /// Edits typed in the stories, counted: a save waits for a rest.
+    story_edits: u64,
+    /// The days list at the sheet's left shown.
+    days_list: bool,
     /// The player pane's sections folded.
     folded: HashSet<pane::Section>,
     /// Which tiles the sheet shows; the tile under the pointer.
@@ -165,7 +169,15 @@ enum Message {
     /// A clip rated (none: unrated again).
     Rate(String, Option<u8>),
     DayEdit(String, text_editor::Action),
-    DaySave(String),
+    /// Typing in the stories rested a moment (the count of edits then):
+    /// what's typed is saved, with no Save to forget.
+    StoryRest(u64),
+    /// A day in the days list clicked: its heading brought to the top;
+    /// where it is, found.
+    JumpDay(String),
+    DayAt(Placement),
+    /// The days list shown or folded away.
+    DaysList,
     /// The window asked to close: what's typed is saved, then it closes.
     Closing(iced::window::Id),
     /// Posters made (or not): shown as they come.
@@ -344,7 +356,7 @@ impl App {
             Start::NewTrip => (None, true),
         };
         let settings = Settings::load();
-        let mut app = App { project: None, error: None, notice: None, making: HashSet::new(), voice_makes: HashSet::new(), drafts: HashMap::new(), dirty: HashSet::new(), selected: None, pane: pane::Pane::default(), height: 920.0, scale: settings.scale.unwrap_or(1.0), width: 1500.0, pane_share: settings.pane_share.unwrap_or(pane::SHARE), grip: None, help: false, settings_open: None, at_home: true, card_hover: None, edit_frames: Default::default(), trips: Vec::new(), places: Vec::new(), naming: None, choosing: None, deleting: None, trip_open: None, about: Default::default(), new_trip: None, menu: None, about_open: false, adding: HashSet::new(), close_anyway: false, filter: Default::default(), tile_hover: None, folded: HashSet::new(), settings };
+        let mut app = App { project: None, error: None, notice: None, making: HashSet::new(), voice_makes: HashSet::new(), drafts: HashMap::new(), dirty: HashSet::new(), selected: None, pane: pane::Pane::default(), height: 920.0, scale: settings.scale.unwrap_or(1.0), width: 1500.0, pane_share: settings.pane_share.unwrap_or(pane::SHARE), grip: None, help: false, settings_open: None, at_home: true, card_hover: None, edit_frames: Default::default(), trips: Vec::new(), places: Vec::new(), naming: None, choosing: None, deleting: None, trip_open: None, about: Default::default(), new_trip: None, menu: None, about_open: false, adding: HashSet::new(), close_anyway: false, filter: Default::default(), tile_hover: None, folded: HashSet::new(), story_edits: 0, days_list: true, settings };
         // A project named opens; else where the window was left (home on
         // the first run, or when it was left there).
         app.refresh_home();
@@ -576,19 +588,9 @@ impl App {
                 self.width = s.width;
             }
             Message::Help => self.help = !self.help,
+            m @ (Message::Filter(_) | Message::TileHover(..) | Message::Rate(..) | Message::DayEdit(..) | Message::StoryRest(_) | Message::DaysList | Message::JumpDay(_) | Message::DayAt(_)) => return self.on_sheet(m),
             Message::About => self.about_open = !self.about_open,
             Message::ShowFolder(p) => self.error = crate::editor::show(&p).err(),
-            Message::Filter(f) => {
-                self.filter = f;
-                // The picked clip hidden: the first one shown instead.
-                return self.step(0);
-            }
-            Message::TileHover(key, true) => self.tile_hover = Some(key),
-            Message::TileHover(key, false) => {
-                if self.tile_hover.as_ref() == Some(&key) {
-                    self.tile_hover = None;
-                }
-            }
             Message::Back => return self.back(),
             m @ (Message::Menu(_) | Message::MenuAt(_) | Message::MenuDo(_)) => return self.on_menu(m),
             m @ (Message::ToOmnix(..) | Message::EmptyDay(..) | Message::Name(_) | Message::NameEdit(_) | Message::NameSave | Message::Home | Message::OpenDay(..) | Message::OpenTrip(_) | Message::TripCard(..) | Message::CardTick | Message::EditCard(..) | Message::EditFrames(..) | Message::AddVideos(_) | Message::VideosPicked(..) | Message::VideosAdded(..) | Message::DeleteAsk(_) | Message::DeleteCounted(..) | Message::DeleteCancel | Message::DeleteConfirm | Message::Deleted(..) | Message::AboutDescription(_) | Message::AboutTags(_) | Message::AboutSave | Message::OpenEdit(_) | Message::ChooseNew | Message::ChooseCancel) => return self.on_home(m),
@@ -614,20 +616,6 @@ impl App {
                 return self.load(root);
             }
             Message::Opened(None) => {}
-            Message::Rate(clip, rating) => {
-                // The same rating again takes it off, as the sheet does.
-                let now = self.project.as_ref().and_then(|p| p.sheet.clips.get(&clip)).and_then(|c| c.rating).map(rating_value);
-                let rating = if now == rating { None } else { rating };
-                self.change(Op::Clip(ClipOp::Rate { clip, rating }));
-            }
-            Message::DayEdit(day, action) => {
-                if let Some(c) = self.drafts.get_mut(&day) {
-                    if action.is_edit() {
-                        self.dirty.insert(day.clone());
-                    }
-                    c.perform(action);
-                }
-            }
             // A story that couldn't be saved: said, and the window stays
             // until it's closed again.
             Message::Closing(window) => {
@@ -637,7 +625,6 @@ impl App {
                 self.close_anyway = true;
                 self.error = Some(format!("A day's story couldn't be saved ({}). Close again to close anyway.", self.error.take().unwrap_or_default()));
             }
-            Message::DaySave(day) => self.save_story(&day),
             Message::Posters(made) => {
                 for p in made {
                     self.making.remove(&p);
@@ -829,6 +816,7 @@ impl App {
             days = days.push(rule::horizontal(1)).push(self.day(p, day));
         }
         let list = column![container(self.filter_bar(p)).padding([4, 16]), scrollable(days).id(LIST).height(Length::Fill).width(Length::Fill)];
+        let list = row![self.days_side(p)].push(list).height(Length::Fill);
         match self.pane() {
             Some(pane) => {
                 let grip = iced::widget::mouse_area(container(rule::vertical(2)).width(8).height(Length::Fill).center_x(8)).on_press(Message::Grip).interaction(iced::mouse::Interaction::ResizingHorizontally);

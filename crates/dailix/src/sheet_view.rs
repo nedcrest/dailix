@@ -10,7 +10,8 @@ use crate::ui;
 use dailix_sheet::footage;
 use dailix_sheet::MarkKind;
 use iced::widget::{column, container, image, row, space, text, text_editor, tooltip};
-use iced::{Alignment, Color, Element, Length, Theme};
+use iced::{Alignment, Color, Element, Length, Task, Theme};
+use dailix_sheet::{ClipOp, Op};
 
 /// Which tiles the sheet shows.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -79,6 +80,11 @@ pub fn step_from(order: &[String], shown: impl Fn(&str) -> bool, at: Option<&str
     }
 }
 
+/// A day's heading's id, to jump to it.
+pub fn day_id(day: &str) -> String {
+    format!("day {day}")
+}
+
 /// A rating's colour: green, amber, red.
 pub fn rating_color(r: u8) -> Color {
     match r {
@@ -89,6 +95,55 @@ pub fn rating_color(r: u8) -> Color {
 }
 
 impl App {
+    /// The sheet's own messages: the filter, the pointer on a tile, a
+    /// rating by a click, a story typed and resting, the days list.
+    pub(super) fn on_sheet(&mut self, message: Message) -> Task<Message> {
+        match message {
+            Message::Filter(f) => {
+                self.filter = f;
+                // The picked clip hidden: the first one shown instead.
+                return self.step(0);
+            }
+            Message::TileHover(key, true) => self.tile_hover = Some(key),
+            Message::TileHover(key, false) => {
+                if self.tile_hover.as_ref() == Some(&key) {
+                    self.tile_hover = None;
+                }
+            }
+            Message::Rate(clip, rating) => {
+                // The same rating again takes it off, as the sheet does.
+                let now = self.project.as_ref().and_then(|p| p.sheet.clips.get(&clip)).and_then(|c| c.rating).map(rating_value);
+                let rating = if now == rating { None } else { rating };
+                self.change(Op::Clip(ClipOp::Rate { clip, rating }));
+            }
+            Message::DayEdit(day, action) => {
+                if let Some(c) = self.drafts.get_mut(&day) {
+                    let edit = action.is_edit();
+                    c.perform(action);
+                    if edit {
+                        self.dirty.insert(day);
+                        self.story_edits += 1;
+                        let n = self.story_edits;
+                        return Task::perform(super::blocking(|| std::thread::sleep(std::time::Duration::from_millis(1200))), move |()| Message::StoryRest(n));
+                    }
+                }
+            }
+            Message::StoryRest(n) => {
+                if n == self.story_edits {
+                    let days: Vec<String> = self.dirty.iter().cloned().collect();
+                    for day in days {
+                        self.save_story(&day);
+                    }
+                }
+            }
+            Message::DaysList => self.days_list = !self.days_list,
+            Message::JumpDay(day) => return iced::advanced::widget::operate(super::Find { tile: iced::widget::Id::from(day_id(&day)), list: None, found: None }).map(Message::DayAt),
+            Message::DayAt(p) => return iced::widget::operation::scroll_to(super::LIST, iced::widget::scrollable::AbsoluteOffset { x: 0.0, y: (p.tile.y - p.content.y - 4.0).max(0.0) }),
+            _ => {}
+        }
+        Task::none()
+    }
+
     /// A clip's rating, if it has one.
     pub(super) fn rating_of(p: &Project, key: &str) -> Option<u8> {
         p.sheet.clips.get(key).and_then(|m| m.rating).map(rating_value)
@@ -113,8 +168,8 @@ impl App {
             Some(content) => {
                 let d = day.day.clone();
                 let editor = text_editor(content).placeholder("the day's story").size(14).height(Length::Shrink).on_action(move |a| Message::DayEdit(d.clone(), a));
-                let save = self.dirty.contains(&day.day).then(|| ui::act("Save", ui::Kind::Secondary).on_press(Message::DaySave(day.day.clone())));
-                row![editor].push(save).spacing(8).align_y(Alignment::Start).into()
+                // Saved by itself a moment after the typing stops.
+                editor.into()
             }
             None => space().into(),
         };
@@ -124,7 +179,32 @@ impl App {
         } else {
             iced::widget::row(shown.into_iter().map(|c| self.tile(p, c))).spacing(10).wrap().vertical_spacing(10).into()
         };
-        column![head, story, tiles].spacing(10).into()
+        container(column![head, story, tiles].spacing(10)).id(day_id(&day.day)).into()
+    }
+
+    /// The days at the sheet's left, a line each: its date, its clips, how
+    /// much of it is rated; the picked clip's day lit; a click brings its
+    /// heading to the top. Folds away to a narrow «Days» button.
+    pub(super) fn days_side<'a>(&'a self, p: &'a Project) -> Element<'a, Message> {
+        let fold = tip(ui::small(if self.days_list { "◂" } else { "▸ Days" }, ui::Kind::Quiet).on_press(Message::DaysList), text(if self.days_list { "Fold the days away" } else { "The days, to jump to" }), tooltip::Position::Right);
+        if !self.days_list {
+            return container(fold).padding([6, 4]).into();
+        }
+        let here = self.selected.as_ref().and_then(|k| p.footage.days.iter().find(|d| d.clips.iter().any(|c| &c.key == k))).map(|d| d.day.as_str());
+        let line = |d: &'a footage::Day| -> Element<'a, Message> {
+            let rated = d.clips.iter().filter(|c| Self::rating_of(p, &c.key).is_some()).count();
+            let share = if d.clips.is_empty() { 0.0 } else { rated as f32 / d.clips.len() as f32 };
+            let words = column![
+                row![text(d.day.clone()).size(13), space().width(Length::Fill), text(d.clips.len().to_string()).size(12).style(text::secondary)],
+                iced::widget::progress_bar(0.0..=1.0, share).girth(3),
+            ]
+            .spacing(3);
+            let kind = if here == Some(d.day.as_str()) { iced::widget::button::secondary } else { iced::widget::button::text };
+            iced::widget::button(words).width(Length::Fill).padding([4, 8]).style(kind).on_press(Message::JumpDay(d.day.clone())).into()
+        };
+        let head = row![text("Days").size(13).style(text::secondary), space().width(Length::Fill), fold].align_y(Alignment::Center);
+        let list = iced::widget::scrollable(column(p.footage.days.iter().map(line)).spacing(2)).height(Length::Fill);
+        container(column![head, list].spacing(6)).width(150).padding([6, 6]).into()
     }
 
     /// A clip as a tile: its rating a line of colour along the top.
