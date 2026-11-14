@@ -135,6 +135,9 @@ struct App {
     menu: Option<(menu::Menu, Option<iced::Rectangle>)>,
     /// The About window shown.
     about_open: bool,
+    /// The error the last failed change of the sheet said, to clear it
+    /// (and only it) once a change goes through.
+    change_error: Option<String>,
     /// Trips videos are being added to.
     adding: HashSet<PathBuf>,
     /// A close refused once for a story not saved: the next one closes.
@@ -365,7 +368,7 @@ impl App {
             Start::NewTrip => (None, true),
         };
         let settings = Settings::load();
-        let mut app = App { project: None, error: None, notice: None, making: HashSet::new(), voice_makes: HashSet::new(), drafts: HashMap::new(), dirty: HashSet::new(), selected: None, pane: pane::Pane::default(), height: 920.0, scale: settings.scale.unwrap_or(1.0), width: 1500.0, pane_share: settings.pane_share.unwrap_or(pane::SHARE), grip: None, help: false, settings_open: None, at_home: true, card_hover: None, edit_frames: Default::default(), trips: Vec::new(), places: Vec::new(), naming: None, choosing: None, deleting: None, trip_open: None, about: Default::default(), new_trip: None, menu: None, about_open: false, adding: HashSet::new(), close_anyway: false, filter: Default::default(), tile_hover: None, folded: HashSet::new(), story_edits: 0, days_list: true, making_edits: HashSet::new(), settings };
+        let mut app = App { project: None, error: None, notice: None, making: HashSet::new(), voice_makes: HashSet::new(), drafts: HashMap::new(), dirty: HashSet::new(), selected: None, pane: pane::Pane::default(), height: 920.0, scale: settings.scale.unwrap_or(1.0), width: 1500.0, pane_share: settings.pane_share.unwrap_or(pane::SHARE), grip: None, help: false, settings_open: None, at_home: true, card_hover: None, edit_frames: Default::default(), trips: Vec::new(), places: Vec::new(), naming: None, choosing: None, deleting: None, trip_open: None, about: Default::default(), new_trip: None, menu: None, about_open: false, adding: HashSet::new(), change_error: None, close_anyway: false, filter: Default::default(), tile_hover: None, folded: HashSet::new(), story_edits: 0, days_list: true, making_edits: HashSet::new(), settings };
         // A project named opens; else where the window was left (home on
         // the first run, or when it was left there).
         app.refresh_home();
@@ -420,8 +423,7 @@ impl App {
     /// Day `day`'s story as typed, saved.
     fn save_story(&mut self, day: &str) {
         let note = self.drafts.get(day).map(|c| c.text().trim_end().to_owned()).unwrap_or_default();
-        self.change(Op::Day(DayOp::Note { day: day.to_owned(), note }));
-        if self.error.is_none() {
+        if self.apply_ops(vec![Op::Day(DayOp::Note { day: day.to_owned(), note })]).is_ok() {
             self.dirty.remove(day);
         }
     }
@@ -471,16 +473,28 @@ impl App {
     /// Applies `ops`, all or none, as one write; the id of the first thing
     /// made, if any.
     fn change_all(&mut self, ops: Vec<Op>) -> Option<String> {
-        let p = self.project.as_mut()?;
+        self.apply_ops(ops).ok().flatten()
+    }
+
+    /// `ops` applied to the sheet on disk: what they made, or why not. A
+    /// success clears the error a change said before, and only that: a
+    /// story saved by itself wiped every other error line (the audit,
+    /// 2026-11-14).
+    fn apply_ops(&mut self, ops: Vec<Op>) -> Result<Option<String>, ()> {
+        let Some(p) = self.project.as_mut() else { return Err(()) };
         match p.store.apply(&ops).map_err(|e| e.to_string()).and_then(|(doc, out)| Ok((doc.sheet().map_err(|e| e.to_string())?, out))) {
             Ok((sheet, out)) => {
                 p.sheet = sheet;
-                self.error = None;
-                out.into_iter().find_map(|o| o.made)
+                if self.error.is_some() && self.error == self.change_error {
+                    self.error = None;
+                }
+                self.change_error = None;
+                Ok(out.into_iter().find_map(|o| o.made))
             }
             Err(e) => {
-                self.error = Some(e);
-                None
+                self.error = Some(e.clone());
+                self.change_error = Some(e);
+                Err(())
             }
         }
     }
