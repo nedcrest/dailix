@@ -146,6 +146,14 @@ pub fn defaults_for(places: &[Place], home: &Path) -> Vec<(PlaceKind, PathBuf)> 
     places.iter().filter(|p| p.path.is_none()).map(|p| (p.kind, default_place(p.kind, home))).collect()
 }
 
+/// `path` as people say it: the home folder as `~`.
+pub fn tilde(path: &Path, home: &Path) -> String {
+    match path.strip_prefix(home) {
+        Ok(rest) if !home.as_os_str().is_empty() => Path::new("~").join(rest).display().to_string(),
+        _ => path.display().to_string(),
+    }
+}
+
 /// `path` cut to `most` characters in the middle, so its start and its
 /// last folder (the part people know) stay: `/home/someone/…/projects`.
 pub fn middle(path: &str, most: usize) -> String {
@@ -200,6 +208,13 @@ pub fn free_space(_: &Path) -> Option<u64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_home_folder_is_said_as_a_tilde() {
+        let home = Path::new("/home/someone");
+        assert_eq!(tilde(Path::new("/home/someone/Dailix/projects"), home), "~/Dailix/projects");
+        assert_eq!(tilde(Path::new("/media/disk/trips"), home), "/media/disk/trips");
+    }
 
     #[test]
     fn a_long_path_is_cut_in_the_middle_keeping_its_last_folder() {

@@ -298,7 +298,7 @@ impl App {
                 tags.push("will be made");
             }
             let title = row![text(label).size(18)].push(optional.then(|| text("optional").size(12).style(text::secondary))).spacing(8).align_y(Alignment::Center);
-            let path = row![text(library::middle(&folder.display().to_string(), 48)).size(15).font(iced::Font::MONOSPACE)].push((!tags.is_empty()).then(|| text(tags.join(" · ")).size(12).style(text::secondary))).spacing(10).align_y(Alignment::Center);
+            let path = row![text(library::middle(&library::tilde(&folder, &home), 48)).size(15).font(iced::Font::MONOSPACE)].push((!tags.is_empty()).then(|| text(tags.join(" · ")).size(12).style(text::secondary))).spacing(10).align_y(Alignment::Center);
             let words = column![title, path, text(hint).size(13).style(text::secondary)].spacing(4).width(Length::Fill);
             let change = button(text("Change…").size(14)).padding([6, 14]).style(button::secondary).on_press(Message::ChoosePlace(kind));
             container(row![words, change].spacing(16).align_y(Alignment::Center)).padding([16, 20]).width(Length::Fill).into()
