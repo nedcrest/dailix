@@ -65,6 +65,12 @@ impl App {
     /// opened (the user, 2026-11-11: each click made another copy).
     fn day_to_omnix(&mut self, root: PathBuf, day: Option<String>, empty: bool) -> Task<Message> {
         self.save_note();
+        // One at a time for a day: made off the window's thread, a second
+        // click found no edit yet and made a copy (the audit, 2026-11-14).
+        if self.making_edits.contains(&(root.clone(), day.clone())) {
+            self.notice = Some("That edit is being made: it opens in Omnix when it's ready.".into());
+            return Task::none();
+        }
         let edits: Vec<(PathBuf, String)> = dailix_sheet::project::videos_named(&root, day.as_deref().unwrap_or(dailix_sheet::project::ALL_DAYS)).into_iter().map(|e| {
             let when = changed(&e);
             (e, when)
@@ -80,14 +86,15 @@ impl App {
     /// An edit made off the window's thread (a long trip's took seconds,
     /// the window frozen: the UI review, step 9), then opened in Omnix.
     fn make_video(&mut self, root: &Path, day: Option<&str>, empty: bool) -> Task<Message> {
-        self.making_edits += 1;
         let (root, day) = (root.to_path_buf(), day.map(str::to_owned));
+        self.making_edits.insert((root.clone(), day.clone()));
+        let key = (root.clone(), day.clone());
         Task::perform(
             super::blocking(move || {
                 let made = if empty { omnix::from_sheet::write_empty(&root, day.as_deref()) } else { omnix::from_sheet::write(&root, day.as_deref()) };
                 made.map_err(|e| format!("{e:#}"))
             }),
-            Message::EditMade,
+            move |made| Message::EditMade(key.0.clone(), key.1.clone(), made),
         )
     }
 
@@ -117,8 +124,8 @@ impl App {
         match message {
             Message::ToOmnix(root, day) => return Task::batch([self.day_to_omnix(root, day, false), self.follow_edit_frames()]),
             Message::EmptyDay(root, day) => return Task::batch([self.day_to_omnix(root, day, true), self.follow_edit_frames()]),
-            Message::EditMade(made) => {
-                self.making_edits = self.making_edits.saturating_sub(1);
+            Message::EditMade(root, day, made) => {
+                self.making_edits.remove(&(root, day));
                 match made.and_then(|edit| crate::editor::open(&edit).map(|()| edit)) {
                     Ok(edit) => self.notice = Some(format!("«{}» made, opening in Omnix.", dailix_sheet::project::edit_name(&edit))),
                     Err(e) => self.error = Some(e),

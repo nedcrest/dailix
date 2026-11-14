@@ -103,7 +103,7 @@ impl App {
                 .push(here(day.as_ref().map_or_else(|| "Contact sheet".to_owned(), |d| format!("Contact sheet · {d}")))),
         };
         let mut bar = row![path, space().width(Length::Fill)].spacing(12).align_y(Alignment::Center);
-        let busy = busy_line(self.making.len(), self.adding.len(), self.making_edits, self.voice_makes.len());
+        let busy = busy_line(self.making.len(), self.adding.len(), self.making_edits.len(), self.voice_makes.len());
         if !busy.is_empty() {
             bar = bar.push(text(format!("⟳ {busy}")).size(13).style(text::secondary));
         }
