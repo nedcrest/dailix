@@ -98,8 +98,10 @@ struct App {
     /// The home view shown (trips and days), rather than a contact sheet;
     /// its trips and places as last read.
     at_home: bool,
-    /// The trip card under the pointer, since when.
+    /// The card under the pointer (a trip's, or an edit's), since when.
     card_hover: Option<(PathBuf, std::time::Instant)>,
+    /// The edits' card frames (Omnix's, gap 110), read or being made.
+    edit_frames: omnix::cards::view::Cache,
     trips: Vec<crate::library::Trip>,
     places: Vec<crate::library::Place>,
     /// A project being named on the home view: its folder, the name typed.
@@ -160,6 +162,9 @@ enum Message {
     /// it's there: its tiles change.
     TripCard(PathBuf, omnix::cards::view::Event),
     CardTick,
+    /// The pointer on an edit's card; its frames made (or why not).
+    EditCard(PathBuf, omnix::cards::view::Event),
+    EditFrames(PathBuf, Result<(), String>),
     AboutDescription(String),
     AboutTags(String),
     AboutSave,
@@ -276,7 +281,7 @@ impl App {
             Start::NewTrip => (None, true),
         };
         let settings = Settings::load();
-        let mut app = App { project: None, error: None, making: HashSet::new(), voice_makes: HashSet::new(), drafts: HashMap::new(), dirty: HashSet::new(), selected: None, pane: pane::Pane::default(), height: 920.0, scale: settings.scale.unwrap_or(1.0), width: 1500.0, pane_share: settings.pane_share.unwrap_or(pane::SHARE), grip: None, help: false, settings_open: None, at_home: true, card_hover: None, trips: Vec::new(), places: Vec::new(), naming: None, choosing: None, trip_open: None, about: Default::default(), new_trip: None, settings };
+        let mut app = App { project: None, error: None, making: HashSet::new(), voice_makes: HashSet::new(), drafts: HashMap::new(), dirty: HashSet::new(), selected: None, pane: pane::Pane::default(), height: 920.0, scale: settings.scale.unwrap_or(1.0), width: 1500.0, pane_share: settings.pane_share.unwrap_or(pane::SHARE), grip: None, help: false, settings_open: None, at_home: true, card_hover: None, edit_frames: Default::default(), trips: Vec::new(), places: Vec::new(), naming: None, choosing: None, trip_open: None, about: Default::default(), new_trip: None, settings };
         // A project named opens; else where the window was left (home on
         // the first run, or when it was left there).
         app.refresh_home();
@@ -303,7 +308,8 @@ impl App {
         };
         // The window's real size, before any resize says it.
         let size = iced::window::latest().and_then(iced::window::size).map(Message::Resized);
-        (app, Task::batch([task, size, form]))
+        let frames = app.follow_edit_frames();
+        (app, Task::batch([task, size, form, frames]))
     }
 
     fn title(&self) -> String {
@@ -391,8 +397,8 @@ impl App {
         let keys = iced::Subscription::batch([keys, grip]);
         let size = iced::window::resize_events().map(|(_, s)| Message::Resized(s));
         // The player's frames, every screen frame while it plays or seeks.
-        // A hovered trip card's tiles change, a screen frame at a time.
-        let size = if self.at_home && self.card_hover.is_some() { iced::Subscription::batch([size, iced::window::frames().map(|_| Message::CardTick)]) } else { size };
+        // A hovered card's tiles change, a screen frame at a time.
+        let size = if self.card_hover.is_some() { iced::Subscription::batch([size, iced::window::frames().map(|_| Message::CardTick)]) } else { size };
         if self.pane_busy() {
             iced::Subscription::batch([keys, size, iced::window::frames().map(|_| Message::Pane(pane::PaneMsg::Tick))])
         } else {
@@ -486,7 +492,7 @@ impl App {
                 self.width = s.width;
             }
             Message::Help => self.help = !self.help,
-            m @ (Message::ToOmnix(..) | Message::EmptyDay(..) | Message::Name(_) | Message::NameEdit(_) | Message::NameSave | Message::Home | Message::OpenDay(..) | Message::OpenTrip(_) | Message::TripCard(..) | Message::CardTick | Message::AboutDescription(_) | Message::AboutTags(_) | Message::AboutSave | Message::OpenEdit(_) | Message::ChooseNew | Message::ChooseCancel) => return self.on_home(m),
+            m @ (Message::ToOmnix(..) | Message::EmptyDay(..) | Message::Name(_) | Message::NameEdit(_) | Message::NameSave | Message::Home | Message::OpenDay(..) | Message::OpenTrip(_) | Message::TripCard(..) | Message::CardTick | Message::EditCard(..) | Message::EditFrames(..) | Message::AboutDescription(_) | Message::AboutTags(_) | Message::AboutSave | Message::OpenEdit(_) | Message::ChooseNew | Message::ChooseCancel) => return self.on_home(m),
             m @ (Message::Settings | Message::SettingsGroup(_) | Message::ChoosePlace(_) | Message::PlaceChosen(..)) => return self.on_settings(m),
             m @ (Message::NewTrip | Message::NewTripTitle(_) | Message::NewTripFolder(_) | Message::NewTripDescription(_) | Message::NewTripTags(_) | Message::NewTripMake | Message::NewTripCancel) => return self.on_new_trip(m),
             m @ (Message::Grip | Message::Pointer(_) | Message::Release | Message::Placed(_) | Message::Scale(_)) => return self.on_layout(m),

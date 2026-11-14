@@ -18,6 +18,8 @@ pub(super) const NAME: &str = "project-name";
 /// A day card's width, and a trip card's; their posters are 16:9.
 const CARD: f32 = 200.0;
 const TRIP_CARD: f32 = 320.0;
+/// An edit's card, two side by side in the question before a new one.
+const EDIT_CARD: f32 = 236.0;
 
 fn gb(bytes: u64) -> String {
     format!("{:.0} GB", bytes as f64 / 1e9)
@@ -34,23 +36,6 @@ pub struct Choosing {
     /// Each video's edit and when it was last changed (read once, as the
     /// question opens).
     pub edits: Vec<(PathBuf, String)>,
-}
-
-/// A video in the list offered: plain, and under the pointer a lighter
-/// ground and an accent frame, so the one a click opens is plain to see
-/// (the user, 2026-11-11).
-fn video_row(theme: &Theme, status: button::Status) -> button::Style {
-    let p = theme.extended_palette();
-    let plain = button::text(theme, status);
-    match status {
-        button::Status::Hovered | button::Status::Pressed => button::Style {
-            background: Some(p.background.strong.color.into()),
-            text_color: p.background.base.text,
-            border: iced::Border { color: p.primary.base.color, width: 1.0, radius: 4.0.into() },
-            ..plain
-        },
-        _ => button::Style { border: iced::Border { radius: 4.0.into(), ..plain.border }, ..plain },
-    }
 }
 
 /// When `edit` was last changed, in local time.
@@ -86,11 +71,7 @@ impl App {
     pub(super) fn choose_layer(&self) -> Element<'_, Message> {
         let Some(c) = &self.choosing else { return space().into() };
         let what = c.day.as_deref().unwrap_or("The trip");
-        let mut list = column![].spacing(2);
-        for (e, when) in &c.edits {
-            let line = row![text(dailix_sheet::project::edit_name(e)).size(14), space().width(Length::Fill), text(when.as_str()).size(12).style(text::secondary)].align_y(Alignment::Center);
-            list = list.push(super::tip(button(line).width(Length::Fill).padding([6, 8]).style(video_row).on_press(Message::OpenEdit(e.clone())), text("Open in Omnix"), tooltip::Position::Right));
-        }
+        let list = iced::widget::row(c.edits.iter().map(|(e, when)| self.edit_card(e, when))).spacing(14).wrap().vertical_spacing(14);
         let new = if c.empty { "New empty video" } else { "New from the marking" };
         let buttons = row![
             space().width(Length::Fill),
@@ -108,14 +89,7 @@ impl App {
         match message {
             Message::ToOmnix(root, day) => self.day_to_omnix(root, day, false),
             Message::EmptyDay(root, day) => self.day_to_omnix(root, day, true),
-            Message::TripCard(root, omnix::cards::view::Event::Open) => return self.on_home(Message::OpenTrip(root)),
-            Message::TripCard(root, omnix::cards::view::Event::Enter) => self.card_hover = Some((root, std::time::Instant::now())),
-            Message::TripCard(root, omnix::cards::view::Event::Exit) => {
-                if self.card_hover.as_ref().is_some_and(|(r, _)| *r == root) {
-                    self.card_hover = None;
-                }
-            }
-            Message::CardTick => {}
+            m @ (Message::TripCard(..) | Message::EditCard(..) | Message::EditFrames(..) | Message::CardTick) => return self.on_card(m),
             Message::ChooseNew => {
                 if let Some(c) = self.choosing.take() {
                     self.make_video(&c.root, c.day.as_deref(), c.empty);
@@ -179,7 +153,51 @@ impl App {
             }
             _ => {}
         }
-        Task::none()
+        self.follow_edit_frames()
+    }
+
+    /// The cards' messages: the pointer on a trip's or an edit's card, one
+    /// opened, an edit's frames made.
+    fn on_card(&mut self, message: Message) -> Task<Message> {
+        use omnix::cards::view::Event;
+        match message {
+            Message::TripCard(root, Event::Open) => return self.on_home(Message::OpenTrip(root)),
+            Message::EditCard(edit, Event::Open) => return self.on_home(Message::OpenEdit(edit)),
+            Message::TripCard(card, Event::Enter) | Message::EditCard(card, Event::Enter) => self.card_hover = Some((card, std::time::Instant::now())),
+            Message::TripCard(card, Event::Exit) | Message::EditCard(card, Event::Exit) => {
+                if self.card_hover.as_ref().is_some_and(|(c, _)| *c == card) {
+                    self.card_hover = None;
+                }
+            }
+            Message::EditFrames(edit, done) => self.edit_frames.made(&edit, done),
+            _ => {}
+        }
+        self.follow_edit_frames()
+    }
+
+    /// The edits shown as cards (the open trip's, the ones offered before
+    /// a new one): their frames read, or the next made off the window's
+    /// thread.
+    pub(super) fn follow_edit_frames(&mut self) -> Task<Message> {
+        let open = self.trip_open.as_ref().and_then(|r| self.trips.iter().find(|t| &t.root == r)).map(|t| t.edits.clone()).unwrap_or_default();
+        let offered = self.choosing.iter().flat_map(|c| c.edits.iter().map(|(e, _)| e.clone()));
+        let edits: Vec<PathBuf> = open.into_iter().chain(offered).collect();
+        match self.edit_frames.want(&edits) {
+            Some(edit) => Task::perform(super::blocking({
+                let edit = edit.clone();
+                move || omnix::cards::make(&edit).map(|_| ()).map_err(|e| format!("{e:#}"))
+            }), move |done| Message::EditFrames(edit.clone(), done)),
+            None => Task::none(),
+        }
+    }
+
+    /// Edit `edit` as a small card: its frames, its name and `note`.
+    fn edit_card<'a>(&'a self, edit: &'a Path, note: &str) -> Element<'a, Message> {
+        let hovered = self.card_hover.as_ref().filter(|(e, _)| e == edit).map(|(_, since)| Some(since.elapsed()));
+        let note = if self.edit_frames.making(edit) { "making its frames…" } else { note };
+        let info = column![text(dailix_sheet::project::edit_name(edit)).size(14)].push((!note.is_empty()).then(|| text(note.to_owned()).size(12).style(text::secondary))).spacing(2);
+        let to = edit.to_owned();
+        omnix::cards::view::card(self.edit_frames.get(edit), hovered, EDIT_CARD, false, info.into(), move |e| Message::EditCard(to.clone(), e))
     }
 
     /// The trip's page shown, its description and tags ready to edit.
@@ -302,10 +320,7 @@ impl App {
         if trip.edits.is_empty() {
             edits = edits.push(text("None yet: → Omnix or Empty edit make one.").size(12).style(text::secondary));
         }
-        for e in &trip.edits {
-            let name = dailix_sheet::project::edit_name(e);
-            edits = edits.push(super::tip(button(text(name).size(14)).padding([3, 8]).style(button::text).on_press(Message::OpenEdit(e.clone())), text("Open in Omnix"), tooltip::Position::Right));
-        }
+        edits = edits.push(iced::widget::row(trip.edits.iter().map(|e| self.edit_card(e, ""))).spacing(14).wrap().vertical_spacing(14));
         let cards = iced::widget::row(trip.days.iter().map(|d| self.day_card(trip, d))).spacing(10).wrap().vertical_spacing(10);
         column![head, about, edits, text("Days").size(15), cards].spacing(12).into()
     }
