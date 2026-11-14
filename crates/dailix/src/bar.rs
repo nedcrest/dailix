@@ -31,6 +31,25 @@ pub fn back_from(place: &Place) -> Option<Place> {
     }
 }
 
+/// The jobs under way, said in a line (the UI review, step 9): adding
+/// videos, making edits, voices, posters; empty with none.
+pub fn busy_line(posters: usize, adding: usize, edits: usize, voices: usize) -> String {
+    let mut said = Vec::new();
+    if adding > 0 {
+        said.push(if adding == 1 { "adding videos".to_owned() } else { format!("adding videos to {adding} trips") });
+    }
+    if edits > 0 {
+        said.push(if edits == 1 { "making an edit".to_owned() } else { format!("making {edits} edits") });
+    }
+    if voices > 0 {
+        said.push(format!("cleaning {}", crate::library::count(voices, "voice")));
+    }
+    if posters > 0 {
+        said.push(format!("posters: {posters} left"));
+    }
+    said.join(" · ")
+}
+
 /// The window's title: the trip's name first, where there is one.
 pub fn title(place: &Place) -> String {
     match place {
@@ -84,8 +103,9 @@ impl App {
                 .push(here(day.as_ref().map_or_else(|| "Contact sheet".to_owned(), |d| format!("Contact sheet · {d}")))),
         };
         let mut bar = row![path, space().width(Length::Fill)].spacing(12).align_y(Alignment::Center);
-        if !self.making.is_empty() {
-            bar = bar.push(text(format!("making posters: {} left", self.making.len())).size(13).style(text::secondary));
+        let busy = busy_line(self.making.len(), self.adding.len(), self.making_edits, self.voice_makes.len());
+        if !busy.is_empty() {
+            bar = bar.push(text(format!("⟳ {busy}")).size(13).style(text::secondary));
         }
         let main = tip(menu::opener("☰", menu::Menu::Main, ui::Kind::Secondary, false), text("Text size, open, keys, settings"), tooltip::Position::Left);
         container(bar.push(main)).padding([10, 16]).into()
@@ -118,6 +138,13 @@ mod tests {
         assert_eq!(back_from(&Place::Sheet(t.clone(), Some("2026-08-22".into()))), Some(Place::Trip(t.clone())));
         assert_eq!(back_from(&Place::Trip(t)), Some(Place::Trips));
         assert_eq!(back_from(&Place::Trips), None);
+    }
+
+    #[test]
+    fn the_jobs_under_way_are_said_in_a_line() {
+        assert_eq!(busy_line(0, 0, 0, 0), "");
+        assert_eq!(busy_line(12, 1, 1, 0), "adding videos · making an edit · posters: 12 left");
+        assert_eq!(busy_line(0, 2, 0, 1), "adding videos to 2 trips · cleaning 1 voice");
     }
 
     #[test]

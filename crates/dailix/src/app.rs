@@ -141,6 +141,8 @@ struct App {
     close_anyway: bool,
     /// Edits typed in the stories, counted: a save waits for a rest.
     story_edits: u64,
+    /// Edits being made for Omnix.
+    making_edits: usize,
     /// The days list at the sheet's left shown.
     days_list: bool,
     /// The player pane's sections folded.
@@ -178,6 +180,11 @@ enum Message {
     DayAt(Placement),
     /// The days list shown or folded away.
     DaysList,
+    /// An edit made for Omnix (or why not).
+    EditMade(Result<PathBuf, String>),
+    /// The error line, or the notice, closed.
+    DismissError,
+    DismissNotice,
     /// The window asked to close: what's typed is saved, then it closes.
     Closing(iced::window::Id),
     /// Posters made (or not): shown as they come.
@@ -328,11 +335,13 @@ fn blocking<T: Send + 'static>(f: impl FnOnce() -> T + Send + 'static) -> impl F
 /// A clip's poster: a frame a third in (past a clip's often shaky start),
 /// 480 wide, as JPEG. False if ffmpeg couldn't.
 fn make_poster(clip: &std::path::Path, duration: f64, poster: &std::path::Path) -> bool {
+    // The frame first, the folder after: a trip trashed while its
+    // posters were being made got its folder made again (the audit).
     let Some(dir) = poster.parent() else { return false };
-    if std::fs::create_dir_all(dir).is_err() {
+    let Some(jpeg) = clip.is_file().then(|| omnix::viewer::jpeg_frame(clip, duration / 3.0, 480)).flatten() else { return false };
+    if !clip.is_file() || std::fs::create_dir_all(dir).is_err() {
         return false;
     }
-    let Some(jpeg) = omnix::viewer::jpeg_frame(clip, duration / 3.0, 480) else { return false };
     let part = dir.join(format!(".{}.part.jpg", poster.file_stem().unwrap_or_default().to_string_lossy()));
     std::fs::write(&part, jpeg).is_ok() && std::fs::rename(&part, poster).is_ok()
 }
@@ -356,7 +365,7 @@ impl App {
             Start::NewTrip => (None, true),
         };
         let settings = Settings::load();
-        let mut app = App { project: None, error: None, notice: None, making: HashSet::new(), voice_makes: HashSet::new(), drafts: HashMap::new(), dirty: HashSet::new(), selected: None, pane: pane::Pane::default(), height: 920.0, scale: settings.scale.unwrap_or(1.0), width: 1500.0, pane_share: settings.pane_share.unwrap_or(pane::SHARE), grip: None, help: false, settings_open: None, at_home: true, card_hover: None, edit_frames: Default::default(), trips: Vec::new(), places: Vec::new(), naming: None, choosing: None, deleting: None, trip_open: None, about: Default::default(), new_trip: None, menu: None, about_open: false, adding: HashSet::new(), close_anyway: false, filter: Default::default(), tile_hover: None, folded: HashSet::new(), story_edits: 0, days_list: true, settings };
+        let mut app = App { project: None, error: None, notice: None, making: HashSet::new(), voice_makes: HashSet::new(), drafts: HashMap::new(), dirty: HashSet::new(), selected: None, pane: pane::Pane::default(), height: 920.0, scale: settings.scale.unwrap_or(1.0), width: 1500.0, pane_share: settings.pane_share.unwrap_or(pane::SHARE), grip: None, help: false, settings_open: None, at_home: true, card_hover: None, edit_frames: Default::default(), trips: Vec::new(), places: Vec::new(), naming: None, choosing: None, deleting: None, trip_open: None, about: Default::default(), new_trip: None, menu: None, about_open: false, adding: HashSet::new(), close_anyway: false, filter: Default::default(), tile_hover: None, folded: HashSet::new(), story_edits: 0, days_list: true, making_edits: 0, settings };
         // A project named opens; else where the window was left (home on
         // the first run, or when it was left there).
         app.refresh_home();
@@ -588,12 +597,14 @@ impl App {
                 self.width = s.width;
             }
             Message::Help => self.help = !self.help,
+            Message::DismissError => self.error = None,
+            Message::DismissNotice => self.notice = None,
             m @ (Message::Filter(_) | Message::TileHover(..) | Message::Rate(..) | Message::DayEdit(..) | Message::StoryRest(_) | Message::DaysList | Message::JumpDay(_) | Message::DayAt(_)) => return self.on_sheet(m),
             Message::About => self.about_open = !self.about_open,
             Message::ShowFolder(p) => self.error = crate::editor::show(&p).err(),
             Message::Back => return self.back(),
             m @ (Message::Menu(_) | Message::MenuAt(_) | Message::MenuDo(_)) => return self.on_menu(m),
-            m @ (Message::ToOmnix(..) | Message::EmptyDay(..) | Message::Name(_) | Message::NameEdit(_) | Message::NameSave | Message::Home | Message::OpenDay(..) | Message::OpenTrip(_) | Message::TripCard(..) | Message::CardTick | Message::EditCard(..) | Message::EditFrames(..) | Message::AddVideos(_) | Message::VideosPicked(..) | Message::VideosAdded(..) | Message::DeleteAsk(_) | Message::DeleteCounted(..) | Message::DeleteCancel | Message::DeleteConfirm | Message::Deleted(..) | Message::AboutDescription(_) | Message::AboutTags(_) | Message::AboutSave | Message::OpenEdit(_) | Message::ChooseNew | Message::ChooseCancel) => return self.on_home(m),
+            m @ (Message::ToOmnix(..) | Message::EmptyDay(..) | Message::Name(_) | Message::NameEdit(_) | Message::NameSave | Message::Home | Message::OpenDay(..) | Message::OpenTrip(_) | Message::TripCard(..) | Message::CardTick | Message::EditCard(..) | Message::EditFrames(..) | Message::AddVideos(_) | Message::VideosPicked(..) | Message::VideosAdded(..) | Message::DeleteAsk(_) | Message::DeleteCounted(..) | Message::DeleteCancel | Message::DeleteConfirm | Message::Deleted(..) | Message::AboutDescription(_) | Message::AboutTags(_) | Message::AboutSave | Message::OpenEdit(_) | Message::ChooseNew | Message::ChooseCancel | Message::EditMade(_)) => return self.on_home(m),
             m @ (Message::Settings | Message::SettingsGroup(_) | Message::ChoosePlace(_) | Message::PlaceChosen(..) | Message::CardMotion(_) | Message::UseDefaultPlaces) => return self.on_settings(m),
             m @ (Message::NewTrip | Message::NewTripTitle(_) | Message::NewTripFolder(_) | Message::NewTripDescription(_) | Message::NewTripTags(_) | Message::NewTripMake | Message::NewTripCancel) => return self.on_new_trip(m),
             m @ (Message::Grip | Message::Pointer(_) | Message::Release | Message::Placed(_) | Message::Scale(_)) => return self.on_layout(m),
@@ -799,11 +810,13 @@ impl App {
 
     fn page(&self) -> Element<'_, Message> {
         let mut page = column![self.top_bar()];
+        // What went wrong, and what a job did, each closed by its ✕.
+        let line = |said: String, style: fn(&Theme) -> text::Style, close: Message| container(row![text(said).size(13).style(style).width(Length::Fill), ui::small("✕", ui::Kind::Quiet).on_press(close)].spacing(8).align_y(Alignment::Center)).padding([0, 16]);
         if let Some(e) = &self.error {
-            page = page.push(container(text(e.clone()).size(13).style(text::danger)).padding([0, 16]));
+            page = page.push(line(e.clone(), text::danger, Message::DismissError));
         }
         if let Some(n) = &self.notice {
-            page = page.push(container(text(n.clone()).size(13).style(text::secondary)).padding([0, 16]));
+            page = page.push(line(n.clone(), text::secondary, Message::DismissNotice));
         }
         if self.at_home {
             return page.push(self.home()).into();

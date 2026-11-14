@@ -63,24 +63,32 @@ impl App {
     /// «→ Omnix» (`empty`: «Empty edit») on a day, or the trip (no day):
     /// its videos made so before offered first, else a new one made and
     /// opened (the user, 2026-11-11: each click made another copy).
-    fn day_to_omnix(&mut self, root: PathBuf, day: Option<String>, empty: bool) {
+    fn day_to_omnix(&mut self, root: PathBuf, day: Option<String>, empty: bool) -> Task<Message> {
         self.save_note();
         let edits: Vec<(PathBuf, String)> = dailix_sheet::project::videos_named(&root, day.as_deref().unwrap_or(dailix_sheet::project::ALL_DAYS)).into_iter().map(|e| {
             let when = changed(&e);
             (e, when)
         }).collect();
         if edits.is_empty() {
-            self.make_video(&root, day.as_deref(), empty);
-        } else {
-            self.choosing = Some(Choosing { root, day, empty, edits });
+            return self.make_video(&root, day.as_deref(), empty);
         }
+        self.choosing = Some(Choosing { root, day, empty, edits });
+        Task::none()
     }
 
     /// A new video of `day` (or all days) from the marking, or empty, opened in Omnix.
-    fn make_video(&mut self, root: &Path, day: Option<&str>, empty: bool) {
-        let made = if empty { omnix::from_sheet::write_empty(root, day) } else { omnix::from_sheet::write(root, day) };
-        self.error = made.map_err(|e| format!("{e:#}")).and_then(|edit| crate::editor::open(&edit)).err();
-        self.refresh_home();
+    /// An edit made off the window's thread (a long trip's took seconds,
+    /// the window frozen: the UI review, step 9), then opened in Omnix.
+    fn make_video(&mut self, root: &Path, day: Option<&str>, empty: bool) -> Task<Message> {
+        self.making_edits += 1;
+        let (root, day) = (root.to_path_buf(), day.map(str::to_owned));
+        Task::perform(
+            super::blocking(move || {
+                let made = if empty { omnix::from_sheet::write_empty(&root, day.as_deref()) } else { omnix::from_sheet::write(&root, day.as_deref()) };
+                made.map_err(|e| format!("{e:#}"))
+            }),
+            Message::EditMade,
+        )
     }
 
     /// The videos offered over the window while asked (gap 104).
@@ -107,41 +115,26 @@ impl App {
     pub(super) fn on_home(&mut self, message: Message) -> Task<Message> {
         self.let_go_of_cards(&message);
         match message {
-            Message::ToOmnix(root, day) => self.day_to_omnix(root, day, false),
-            Message::EmptyDay(root, day) => self.day_to_omnix(root, day, true),
+            Message::ToOmnix(root, day) => return Task::batch([self.day_to_omnix(root, day, false), self.follow_edit_frames()]),
+            Message::EmptyDay(root, day) => return Task::batch([self.day_to_omnix(root, day, true), self.follow_edit_frames()]),
+            Message::EditMade(made) => {
+                self.making_edits = self.making_edits.saturating_sub(1);
+                match made.and_then(|edit| crate::editor::open(&edit).map(|()| edit)) {
+                    Ok(edit) => self.notice = Some(format!("«{}» made, opening in Omnix.", dailix_sheet::project::edit_name(&edit))),
+                    Err(e) => self.error = Some(e),
+                }
+                self.refresh_home();
+            }
             m @ (Message::TripCard(..) | Message::EditCard(..) | Message::EditFrames(..) | Message::CardTick) => return self.on_card(m),
             m @ (Message::AddVideos(_) | Message::VideosPicked(..) | Message::VideosAdded(..)) => return self.on_add(m),
             m @ (Message::DeleteAsk(_) | Message::DeleteCounted(..) | Message::DeleteCancel | Message::DeleteConfirm | Message::Deleted(..)) => return self.on_delete(m),
             Message::ChooseNew => {
                 if let Some(c) = self.choosing.take() {
-                    self.make_video(&c.root, c.day.as_deref(), c.empty);
+                    return Task::batch([self.make_video(&c.root, c.day.as_deref(), c.empty), self.follow_edit_frames()]);
                 }
             }
             Message::ChooseCancel => self.choosing = None,
-            Message::Name(root) => {
-                // From a card's ⋯: the name is typed on the trip's page.
-                if self.trip_open.as_ref() != Some(&root) || !self.at_home {
-                    let open = self.on_home(Message::OpenTrip(root.clone()));
-                    self.at_home = true;
-                    return Task::batch([open, self.on_home(Message::Name(root))]);
-                }
-                let typed = dailix_sheet::project::title(&root);
-                self.naming = Some((root, typed));
-                return iced::widget::operation::focus(NAME);
-            }
-            Message::NameEdit(typed) => {
-                if let Some((_, t)) = &mut self.naming {
-                    *t = typed;
-                }
-            }
-            Message::NameSave => {
-                if let Some((root, typed)) = self.naming.take() {
-                    match dailix_sheet::project::set_title(&root, &typed) {
-                        Ok(()) => self.refresh_home(),
-                        Err(e) => self.error = Some(format!("{}: {e}", root.display())),
-                    }
-                }
-            }
+            m @ (Message::Name(_) | Message::NameEdit(_) | Message::NameSave) => return self.on_name(m),
             Message::Home => {
                 let _ = self.save_typed();
                 self.notice = None;
@@ -182,6 +175,38 @@ impl App {
             _ => {}
         }
         self.follow_edit_frames()
+    }
+
+    /// A trip's name: asked for (on its page), typed, kept.
+    fn on_name(&mut self, message: Message) -> Task<Message> {
+        match message {
+            Message::Name(root) => {
+                // From a card's ⋯: the name is typed on the trip's page.
+                if self.trip_open.as_ref() != Some(&root) || !self.at_home {
+                    let open = self.on_home(Message::OpenTrip(root.clone()));
+                    self.at_home = true;
+                    return Task::batch([open, self.on_home(Message::Name(root))]);
+                }
+                let typed = dailix_sheet::project::title(&root);
+                self.naming = Some((root, typed));
+                return iced::widget::operation::focus(NAME);
+            }
+            Message::NameEdit(typed) => {
+                if let Some((_, t)) = &mut self.naming {
+                    *t = typed;
+                }
+            }
+            Message::NameSave => {
+                if let Some((root, typed)) = self.naming.take() {
+                    match dailix_sheet::project::set_title(&root, &typed) {
+                        Ok(()) => self.refresh_home(),
+                        Err(e) => self.error = Some(format!("{}: {e}", root.display())),
+                    }
+                }
+            }
+            _ => {}
+        }
+        Task::none()
     }
 
     /// A page left or a question closed takes its cards with it, and a card
@@ -236,7 +261,8 @@ impl App {
                 );
             }
             Message::VideosPicked(root, Some(files)) if !files.is_empty() => {
-                self.notice = Some(format!("Adding {} to «{}»…", library::count(files.len(), "video"), dailix_sheet::project::title(&root)));
+                // The bar says it's under way; the notice says what it did.
+                self.notice = None;
                 let picks: Vec<crate::add::Pick> = files.into_iter().map(|file| crate::add::Pick { file, span: None }).collect();
                 self.adding.insert(root.clone());
                 let done = root.clone();
@@ -285,6 +311,13 @@ impl App {
                 if let crate::delete::Doomed::Trip(root) = &doomed {
                     if self.trip_open.as_ref() == Some(root) {
                         self.trip_open = None;
+                    }
+                    // Its sheet, if it was loaded, goes with it.
+                    if self.error.is_none() && self.project.as_ref().is_some_and(|p| &p.footage.layout.root == root) {
+                        self.project = None;
+                        self.making.clear();
+                        self.selected = None;
+                        self.pane = pane::Pane::default();
                     }
                     if self.settings.last_trip.as_ref() == Some(root) {
                         self.settings.last_trip = None;
