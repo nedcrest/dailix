@@ -6,9 +6,22 @@
 # token for it goes in the secret OMNIX_TOKEN.
 name: CI
 
+# Not for a change to the docs or the agent's skills alone (the free
+# Actions minutes: the user, 2026-11-15); by hand for anything.
 on:
   push:
+    paths:
+      - '**'
+      - '!**.md'
+      - '!docs/**'
+      - '!.claude/**'
   pull_request:
+    paths:
+      - '**'
+      - '!**.md'
+      - '!docs/**'
+      - '!.claude/**'
+  workflow_dispatch:
 
 jobs:
   test:
