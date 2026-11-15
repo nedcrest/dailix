@@ -119,8 +119,12 @@ CI (`.github/workflows/ci.yml`) checks Omnix out beside it the same way.
 
 ## Built with AI
 
-Dailix and Omnix were built by one person working with Claude: how, and
-the rules that kept it sound, in Omnix's `docs/AI-DRIVEN.md`.
+Dailix, and everything Omnix added to rOsmo360 since forking it, were
+built by one person working with Claude: how, and the rules that kept it
+sound, in Omnix's `docs/AI-DRIVEN.md`. Dailix plays 360 clips through
+Omnix, whose 360 playback is
+[rOsmo360](https://github.com/ravelund/rOsmo360)'s, by Vibing with
+Ravelund.
 
 ## Licence
 
