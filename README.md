@@ -4,7 +4,7 @@ Bringing footage in and choosing it. *Dailies* is the trade's word for a
 day's raw footage, looked through and sorted before the edit: Dailix
 takes it off cards and phones, lets you look through it and mark what's
 worth keeping, files the originals away, and hands the chosen material to
-an editor (Omnix, `../omnix-360-studio`). Rust, built the way Omnix is.
+an editor ([Omnix](https://github.com/nedcrest/omnix-360-studio)). Rust, built the way Omnix is.
 
 ![Dailix: a trip opened from its card, a day's clips rated with a key each (a green line for a take, amber for a maybe), the filter left with the unrated ones, back to the trip and its «→ Omnix» menu.](docs/img/dailix-hero.gif)
 
@@ -14,11 +14,11 @@ command line; it replaces footage-agent's web contact sheet. A trip holds
 its edits, each with its exports; a new trip is made here.
 Bringing footage in is designed (`docs/INGEST.md`), not built.
 
-**New here? Read [the guide](../omnix-360-studio/docs/guide/README.md)**
+**New here? Read [the guide](https://github.com/nedcrest/omnix-360-studio/blob/main/docs/guide/README.md)**
 (it lives in Omnix's repository, for both programs): installing, a
 tutorial from a trip's clips to a finished film, and every key, command
-and setting ([Dailix's keys](../omnix-360-studio/docs/guide/keys-dailix.md),
-[commands](../omnix-360-studio/docs/guide/commands-dailix.md)).
+and setting ([Dailix's keys](https://github.com/nedcrest/omnix-360-studio/blob/main/docs/guide/keys-dailix.md),
+[commands](https://github.com/nedcrest/omnix-360-studio/blob/main/docs/guide/commands-dailix.md)).
 
 ## Three places
 
@@ -110,7 +110,7 @@ folder named `omnix-360-studio` (Dailix finds it at
 `../omnix-360-studio`).
 
 ```sh
-git clone <omnix-360-studio> && git clone <dailix>
+git clone https://github.com/nedcrest/omnix-360-studio && git clone https://github.com/nedcrest/dailix
 sudo apt install pkg-config libasound2-dev ffmpeg   # Debian/Ubuntu
 cd dailix && cargo build --release && cargo test
 ```
