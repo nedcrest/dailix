@@ -22,6 +22,8 @@ mod settings_window;
 mod new_trip;
 #[path = "sorter.rs"]
 mod sorter;
+#[path = "parts_view.rs"]
+mod parts_view;
 
 use crate::ui;
 use dailix_sheet::footage::{self, Footage};
@@ -159,6 +161,8 @@ struct App {
     /// videos are new, as the home view last counted.
     sorter: Option<sorter::Sorter>,
     tmp_new: usize,
+    /// The contact sheet's part filter: one part's clips only (gap 117).
+    part: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -289,6 +293,8 @@ enum Message {
     TileHover(String, bool),
     /// The TMP sorter's (gap 117).
     Sort(sorter::SortMsg),
+    /// A trip's parts (gap 117).
+    Part(parts_view::PartMsg),
 }
 
 /// The tiles' list: its id, for scrolling it.
@@ -298,6 +304,8 @@ const LIST: &str = "clips";
 /// tile's bounds (content coordinates, as laid out unscrolled).
 #[derive(Debug, Clone, Copy)]
 struct Placement {
+    /// The list's id (the sheet's, or the TMP sorter's).
+    list: &'static str,
     view: iced::Rectangle,
     content: iced::Rectangle,
     scrolled: iced::Vector,
@@ -306,6 +314,8 @@ struct Placement {
 
 /// Finds the list and the tile with id `tile` in the window's widgets.
 struct Find {
+    /// The list to look in, and the tile.
+    list_id: &'static str,
     tile: iced::widget::Id,
     list: Option<(iced::Rectangle, iced::Rectangle, iced::Vector)>,
     found: Option<iced::Rectangle>,
@@ -316,7 +326,7 @@ impl iced::advanced::widget::Operation<Placement> for Find {
         operate(self);
     }
     fn scrollable(&mut self, id: Option<&iced::widget::Id>, bounds: iced::Rectangle, content: iced::Rectangle, translation: iced::Vector, _: &mut dyn iced::advanced::widget::operation::Scrollable) {
-        if id == Some(&iced::widget::Id::new(LIST)) {
+        if id == Some(&iced::widget::Id::new(self.list_id)) {
             self.list = Some((bounds, content, translation));
         }
     }
@@ -327,7 +337,7 @@ impl iced::advanced::widget::Operation<Placement> for Find {
     }
     fn finish(&self) -> iced::advanced::widget::operation::Outcome<Placement> {
         match (self.list, self.found) {
-            (Some((view, content, scrolled)), Some(tile)) => iced::advanced::widget::operation::Outcome::Some(Placement { view, content, scrolled, tile }),
+            (Some((view, content, scrolled)), Some(tile)) => iced::advanced::widget::operation::Outcome::Some(Placement { list: self.list_id, view, content, scrolled, tile }),
             _ => iced::advanced::widget::operation::Outcome::None,
         }
     }
@@ -376,7 +386,7 @@ impl App {
             Start::NewTrip => (None, true),
         };
         let settings = Settings::load();
-        let mut app = App { project: None, error: None, notice: None, making: HashSet::new(), voice_makes: HashSet::new(), drafts: HashMap::new(), dirty: HashSet::new(), selected: None, pane: pane::Pane::default(), height: 920.0, scale: settings.scale.unwrap_or(1.0), width: 1500.0, pane_share: settings.pane_share.unwrap_or(pane::SHARE), grip: None, help: false, settings_open: None, at_home: true, card_hover: None, edit_frames: Default::default(), trips: Vec::new(), places: Vec::new(), naming: None, choosing: None, deleting: None, trip_open: None, about: Default::default(), new_trip: None, menu: None, about_open: false, adding: HashSet::new(), change_error: None, close_anyway: false, filter: Default::default(), tile_hover: None, sorter: None, tmp_new: 0, folded: HashSet::new(), story_edits: 0, days_list: true, making_edits: HashSet::new(), settings };
+        let mut app = App { project: None, error: None, notice: None, making: HashSet::new(), voice_makes: HashSet::new(), drafts: HashMap::new(), dirty: HashSet::new(), selected: None, pane: pane::Pane::default(), height: 920.0, scale: settings.scale.unwrap_or(1.0), width: 1500.0, pane_share: settings.pane_share.unwrap_or(pane::SHARE), grip: None, help: false, settings_open: None, at_home: true, card_hover: None, edit_frames: Default::default(), trips: Vec::new(), places: Vec::new(), naming: None, choosing: None, deleting: None, trip_open: None, about: Default::default(), new_trip: None, menu: None, about_open: false, adding: HashSet::new(), change_error: None, close_anyway: false, filter: Default::default(), tile_hover: None, sorter: None, tmp_new: 0, part: None, folded: HashSet::new(), story_edits: 0, days_list: true, making_edits: HashSet::new(), settings };
         // A project named opens; else where the window was left (home on
         // the first run, or when it was left there).
         app.refresh_home();
@@ -560,11 +570,16 @@ impl App {
     /// and brings it into view.
     fn step(&mut self, by: isize) -> Task<Message> {
         let Some(p) = &self.project else { return Task::none() };
-        let shown = |k: &str| self.filter.shows(Self::rating_of(p, k));
+        let shown = |k: &str| self.shows(p, k);
         match sheet_view::step_from(&self.order(), shown, self.selected.as_deref(), by) {
             Some(next) => self.select(next),
             None => Task::none(),
         }
+    }
+
+    /// Whether the sheet shows clip `key`: its rating and part filters.
+    fn shows(&self, p: &Project, key: &str) -> bool {
+        self.filter.shows(Self::rating_of(p, key)) && parts_view::part_shows(&p.sheet.parts, self.part.as_deref(), key)
     }
 
     /// Picks `key` and asks where its tile is, to scroll to it.
@@ -575,7 +590,7 @@ impl App {
             let _ = self.settings.save();
         }
         let open = self.open_clip(&key);
-        let place = iced::advanced::widget::operate(Find { tile: iced::widget::Id::from(key), list: None, found: None }).map(Message::Placed);
+        let place = iced::advanced::widget::operate(Find { list_id: LIST, tile: iced::widget::Id::from(key), list: None, found: None }).map(Message::Placed);
         Task::batch([open, place])
     }
 
@@ -608,7 +623,7 @@ impl App {
                     None
                 };
                 if let Some(y) = y {
-                    return iced::widget::operation::scroll_to(LIST, iced::widget::scrollable::AbsoluteOffset { x: 0.0, y: y.max(0.0) });
+                    return iced::widget::operation::scroll_to(p.list, iced::widget::scrollable::AbsoluteOffset { x: 0.0, y: y.max(0.0) });
                 }
             }
             Message::Scale(step) => {
@@ -629,6 +644,7 @@ impl App {
             Message::Select(key) => return self.select(key),
             Message::Pane(msg) => return self.on_pane(msg),
             Message::Sort(msg) => return self.on_sort(msg),
+            Message::Part(msg) => return self.on_part(msg),
             Message::Resized(s) => {
                 self.height = s.height;
                 self.width = s.width;
@@ -879,7 +895,8 @@ impl App {
             return page.push(container(text("No project open").size(16)).center(Length::Fill)).into();
         };
         let mut days = column![].spacing(18).padding([8, 16]);
-        for day in &p.footage.days {
+        // A part's days only, while one is shown (gap 117).
+        for day in p.footage.days.iter().filter(|d| self.part.is_none() || d.clips.iter().any(|c| self.shows(p, &c.key))) {
             days = days.push(rule::horizontal(1)).push(self.day(p, day));
         }
         let list = column![container(self.filter_bar(p)).padding([4, 16]), scrollable(days).id(LIST).height(Length::Fill).width(Length::Fill)];

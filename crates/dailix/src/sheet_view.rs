@@ -117,7 +117,7 @@ impl App {
                 // (a click opened a clip, or kept a hidden one: the
                 // audit, 2026-11-14).
                 let (Some(p), Some(picked)) = (&self.project, self.selected.clone()) else { return Task::none() };
-                let shown = |k: &str| self.filter.shows(Self::rating_of(p, k));
+                let shown = |k: &str| self.shows(p, k);
                 return match step_from(&self.order(), shown, Some(&picked), 0) {
                     Some(k) if k == picked => Task::none(),
                     Some(k) => self.select(k),
@@ -159,7 +159,7 @@ impl App {
                 }
             }
             Message::DaysList => self.days_list = !self.days_list,
-            Message::JumpDay(day) => return iced::advanced::widget::operate(super::Find { tile: iced::widget::Id::from(day_id(&day)), list: None, found: None }).map(Message::DayAt),
+            Message::JumpDay(day) => return iced::advanced::widget::operate(super::Find { list_id: super::LIST, tile: iced::widget::Id::from(day_id(&day)), list: None, found: None }).map(Message::DayAt),
             Message::DayAt(p) => return iced::widget::operation::scroll_to(super::LIST, iced::widget::scrollable::AbsoluteOffset { x: 0.0, y: (p.tile.y - p.content.y - 4.0).max(0.0) }),
             _ => {}
         }
@@ -179,7 +179,7 @@ impl App {
             tip(ui::small(format!("{} {}", f.label(), n[i]), kind).on_press(Message::Filter(*f)), text(f.hint()), tooltip::Position::Bottom)
         };
         let linked = iced::widget::Row::with_children(Filter::ALL.iter().enumerate().map(one)).spacing(1);
-        row![text("Show").size(13).style(text::secondary), linked].spacing(8).align_y(Alignment::Center).into()
+        row![text("Show").size(13).style(text::secondary), linked].push(self.part_picker(&p.sheet.parts)).spacing(8).align_y(Alignment::Center).into()
     }
 
     /// A day: its date, how far it's rated, its story, its clips shown.
@@ -195,7 +195,7 @@ impl App {
             }
             None => space().into(),
         };
-        let shown: Vec<&footage::Clip> = day.clips.iter().filter(|c| self.filter.shows(Self::rating_of(p, &c.key))).collect();
+        let shown: Vec<&footage::Clip> = day.clips.iter().filter(|c| self.shows(p, &c.key)).collect();
         let tiles: Element<'a, Message> = if shown.is_empty() {
             text("None of this day's clips shows: see the filter above.").size(12).style(text::secondary).into()
         } else {
@@ -225,7 +225,7 @@ impl App {
             iced::widget::button(words).width(Length::Fill).padding([4, 8]).style(kind).on_press(Message::JumpDay(d.day.clone())).into()
         };
         let head = row![text("Days").size(13).style(text::secondary), space().width(Length::Fill), fold].align_y(Alignment::Center);
-        let list = iced::widget::scrollable(column(p.footage.days.iter().map(line)).spacing(2)).height(Length::Fill);
+        let list = iced::widget::scrollable(column(p.footage.days.iter().filter(|d| self.part.is_none() || d.clips.iter().any(|c| self.shows(p, &c.key))).map(line)).spacing(2)).height(Length::Fill);
         container(column![head, list].spacing(6)).width(150).padding([6, 6]).into()
     }
 

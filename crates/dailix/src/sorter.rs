@@ -21,6 +21,13 @@ use std::sync::{Arc, Mutex};
 const TILE: f32 = 176.0;
 /// The panel at the right.
 const SIDE: f32 = 340.0;
+/// The tiles' list: its id, for scrolling a tile into view.
+const TILES: &str = "tmp-tiles";
+
+/// A tile's id: its place in TMP.
+fn tile_id(rel: &str) -> String {
+    format!("tmp:{rel}")
+}
 
 /// The sorter's state while it's open.
 #[derive(Default)]
@@ -167,13 +174,16 @@ impl App {
         let Some(s) = &mut self.sorter else { return Task::none() };
         let Some(path) = s.raws.get(i).map(|r| r.path.clone()) else { return Task::none() };
         s.shown = Some(i);
+        // Its tile brought into view, as the sheet's are.
+        let place = iced::advanced::widget::operate(super::Find { list_id: TILES, tile: iced::widget::Id::from(tile_id(&s.raws[i].rel)), list: None, found: None }).map(Message::Placed);
         if s.showing.as_ref() == Some(&path) {
-            return Task::none();
+            return place;
         }
         s.showing = Some(path.clone());
         s.viewer = None;
         let p = path.clone();
-        Task::perform(blocking(move || omnix::viewer::load(&p).map_err(|e| format!("{e:#}"))), move |r| Message::Sort(SortMsg::Loaded(path.clone(), Slot(Arc::new(Mutex::new(Some(r)))))))
+        let load = Task::perform(blocking(move || omnix::viewer::load(&p).map_err(|e| format!("{e:#}"))), move |r| Message::Sort(SortMsg::Loaded(path.clone(), Slot(Arc::new(Mutex::new(Some(r)))))));
+        Task::batch([load, place])
     }
 
     /// The panel's choices: the trip, its parts, a new part, the day.
@@ -314,7 +324,7 @@ impl App {
             let place = self.tmp_place().map(|p| p.display().to_string()).unwrap_or_default();
             return container(column![text("TMP is empty").size(20), text(format!("Videos put into {place} show here, by the day they were filmed.")).size(14).style(text::secondary)].spacing(8).align_x(Alignment::Center)).center(Length::Fill).into();
         }
-        let left = column![self.sort_player_view(s), rule::horizontal(1), scrollable(self.sort_tiles(s)).height(Length::Fill).width(Length::Fill)].spacing(8);
+        let left = column![self.sort_player_view(s), rule::horizontal(1), scrollable(self.sort_tiles(s)).id(TILES).height(Length::Fill).width(Length::Fill)].spacing(8);
         row![left.width(Length::Fill), rule::vertical(1), container(scrollable(self.sort_side(s))).width(SIDE).padding([0, 12])].spacing(8).padding([8, 16]).into()
     }
 
@@ -363,7 +373,7 @@ impl App {
         let filed = s.ledger.filed(&r.rel);
         let name = r.path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
         let went = filed.first().map_or_else(|| format!("{:.0} s · new", r.duration), |f| format!("✓ {}", dailix_sheet::project::title(&self.settings.projects.clone().unwrap_or_default().join(&f.trip))));
-        let info = column![text(name).size(12), text(went).size(11).style(if filed.is_empty() { text::secondary } else { text::success })].spacing(2).width(TILE);
+        let info = column![text(crate::library::middle(&name, 26)).size(12), text(went).size(11).style(if filed.is_empty() { text::secondary } else { text::success })].spacing(2).width(TILE);
         let picked = s.picked.contains(&i);
         let tile = button(column![picture, info].spacing(4)).padding(4).on_press(Message::Sort(SortMsg::Click(i))).style(move |t, st| {
             let mut b = if picked { button::primary(t, st) } else { button::text(t, st) };
@@ -372,7 +382,7 @@ impl App {
             }
             b
         });
-        tip(tile, text(r.rel.clone()), tooltip::Position::Bottom)
+        container(tip(tile, text(r.rel.clone()), tooltip::Position::Bottom)).id(tile_id(&r.rel)).into()
     }
 
     /// The panel: what the picked become.
@@ -407,7 +417,7 @@ impl App {
     /// The trip's parts to tick, and a new one.
     fn sort_parts<'a>(&'a self, s: &'a Sorter, trip: Option<&TripChoice>) -> Element<'a, Message> {
         let to = |m: SortMsg| Message::Sort(m);
-        let mut names: Vec<String> = trip.map(|t| crate::library::parts(&t.root).into_iter().map(|p| p.name).collect()).unwrap_or_default();
+        let mut names: Vec<String> = trip.and_then(|t| self.trips.iter().find(|x| x.root == t.root)).map(|t| t.parts.iter().map(|p| p.name.clone()).collect()).unwrap_or_default();
         for p in &s.parts {
             if !names.iter().any(|n| dailix_sheet::parts::same_name(n, p)) {
                 names.push(p.clone());

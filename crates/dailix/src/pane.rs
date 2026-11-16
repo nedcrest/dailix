@@ -127,6 +127,7 @@ pub enum PaneMsg {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Section {
     Marks,
+    Parts,
     Voice,
     File,
 }
@@ -473,6 +474,7 @@ impl App {
         // the marks were squeezed to a line.
         let sections = column![
             self.section(Section::Marks, format!("Marks ({n})"), Some(self.marks_section())),
+            self.section(Section::Parts, "Parts".into(), self.project.as_ref().map(|p| container(self.clip_parts(&p.sheet.parts, key)).padding([0, 12]).into())),
             self.section(Section::Voice, "Voice".into(), self.pane.viewer.is_some().then(|| container(self.voice_row()).padding([0, 12]).into())),
             self.section(Section::File, "About the file".into(), Some(container(self.facts()).padding([0, 12]).into())),
         ]

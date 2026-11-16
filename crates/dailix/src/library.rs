@@ -56,6 +56,8 @@ pub struct Trip {
     pub about: dailix_sheet::project::About,
     pub days: Vec<Day>,
     pub edits: Vec<PathBuf>,
+    /// Its parts (gap 117): named lists of its clips.
+    pub parts: Vec<dailix_sheet::Part>,
     /// Its card's frames (Omnix's project cards, gap 110): up to 16 of
     /// its clips' posters made so far, spread over its days in order.
     pub frames: omnix::cards::view::Frames,
@@ -112,15 +114,10 @@ pub fn trip(root: &Path) -> Result<Trip, String> {
         .collect();
     let posters: Vec<PathBuf> = footage.days.iter().flat_map(|d| d.clips.iter().map(|c| c.poster.clone())).filter(|p| p.is_file()).collect();
     let frames = omnix::cards::view::Frames::from_files(&omnix::cards::spread(&posters, omnix::cards::FRAMES));
-    Ok(Trip { root: root.to_owned(), title, about: dailix_sheet::project::about(root), days, edits: dailix_sheet::project::edits(root), frames })
+    Ok(Trip { root: root.to_owned(), title, about: dailix_sheet::project::about(root), days, edits: dailix_sheet::project::edits(root), parts: sheet.parts, frames })
 }
 
 /// `n` of `one` in words: «1 clip», «2 clips», «0 clips».
-/// The parts of the trip at `root` (none when its marking can't be read).
-pub fn parts(root: &std::path::Path) -> Vec<dailix_sheet::Part> {
-    dailix_sheet::Store::new(dailix_sheet::Layout::new(root).sheet()).read().ok().and_then(|d| d.sheet().ok()).map(|s| s.parts).unwrap_or_default()
-}
-
 pub fn count(n: usize, one: &str) -> String {
     if n == 1 { format!("1 {one}") } else { format!("{n} {one}s") }
 }

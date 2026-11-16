@@ -145,6 +145,7 @@ impl App {
             Message::Home => {
                 let _ = self.save_typed();
                 self.sorter = None;
+                self.part = None;
                 self.tile_hover = None;
                 self.notice = None;
                 self.pane = pane::Pane::default();
@@ -160,6 +161,7 @@ impl App {
             }
             Message::OpenTrip(root) => {
                 self.sorter = None;
+                self.part = None;
                 self.open_trip(root);
                 self.settings.last_trip = self.trip_open.clone();
                 let _ = self.settings.save();
@@ -183,7 +185,7 @@ impl App {
                 // brought up either way.
                 let first = self.project.as_ref().and_then(|p| {
                     let d = p.footage.days.iter().find(|d| d.day == day)?;
-                    d.clips.iter().find(|c| self.filter.shows(Self::rating_of(p, &c.key))).map(|c| c.key.clone())
+                    d.clips.iter().find(|c| self.shows(p, &c.key)).map(|c| c.key.clone())
                 });
                 let pick = first.map_or_else(Task::none, |k| self.select(k));
                 return Task::batch([open, pick, Task::done(Message::JumpDay(day))]);
@@ -618,7 +620,7 @@ impl App {
         let more = |e: &PathBuf| row![space().width(Length::Fill), super::menu::opener("⋯", super::menu::Menu::Edit(e.clone()), ui::Kind::Quiet, true)];
         edits = edits.push(iced::widget::row(trip.edits.iter().map(|e| column![self.edit_card(e, ""), more(e)].spacing(2).width(EDIT_CARD).into())).spacing(14).wrap().vertical_spacing(14));
         let cards = iced::widget::row(trip.days.iter().map(|d| self.day_card(trip, d))).spacing(10).wrap().vertical_spacing(10);
-        column![head, about, edits, text("Days").size(15), cards].spacing(12).into()
+        column![head, about, edits, self.trip_parts(trip), text("Days").size(15), cards].spacing(12).into()
     }
 
     /// A day as a card; a click opens it in the contact sheet.

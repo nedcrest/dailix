@@ -4,7 +4,7 @@
 //! Omnix's `docs/guide/keys-dailix.md`, checked by a test).
 
 /// The groups: a title and its lines (keys, what they do).
-pub const GROUPS: [(&str, &[(&str, &str)]); 5] = [
+pub const GROUPS: [(&str, &[(&str, &str)]); 6] = [
     (
         "Clips",
         &[
@@ -58,6 +58,19 @@ pub const GROUPS: [(&str, &[(&str, &str)]); 5] = [
             ("Ctrl+,", "settings: the places, the look"),
             ("F1", "this list"),
             ("Esc", "close a menu or a window over the page"),
+        ],
+    ),
+    (
+        "TMP sorter",
+        &[
+            ("click", "pick a video, and play it"),
+            ("Ctrl+click", "add it to the picked, or take it out"),
+            ("Shift+click", "pick the run from the last clicked"),
+            ("← →", "the next video (Shift: the run grows)"),
+            ("Ctrl+A", "pick every new one"),
+            ("Space", "play, pause"),
+            ("Enter", "file the picked into the trip"),
+            ("Esc", "back to the trips"),
         ],
     ),
 ];

@@ -218,8 +218,21 @@ pub fn file(tmp: &Path, root: &Path, files: &[PathBuf], day: Option<&str>, parts
         }
     }
     ledger.save(tmp)?;
+    // The posters the sorter made, kept: the trip's day cards show them
+    // at once, not when the sheet first opens (the same frame, a third in).
+    let layout = Layout::new(root);
+    for (f, s) in files.iter().zip(&said) {
+        if let Some(key) = clip_key(s)
+            && !layout.poster(&key).is_file()
+            && poster(tmp, &rel(tmp, f)).is_file()
+        {
+            let to = layout.poster(&key);
+            let _ = to.parent().map(std::fs::create_dir_all);
+            let _ = std::fs::copy(poster(tmp, &rel(tmp, f)), to);
+        }
+    }
     let keys: Vec<String> = said.iter().filter_map(clip_key).collect();
-    let store = Store::new(Layout::new(root).sheet());
+    let store = Store::new(layout.sheet());
     let known: Vec<String> = store.read().ok().and_then(|d| d.sheet().ok()).map(|s| s.parts.into_iter().map(|p| p.name).collect()).unwrap_or_default();
     let ops = part_ops(&known, parts, &keys);
     if !ops.is_empty() {
