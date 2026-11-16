@@ -87,16 +87,25 @@ card / phone / folder ──copy, verified──▶ TMP ──move, verified─�
 6. **The end, said plainly**: "Action 2 card: 143 files verified in TMP
    — safe to format", or what failed and why. Dailix never formats or
    deletes anything on a card or a phone.
-7. **Chosen** in the contact sheet, on the trip's days in TMP: as Kos is
-   now, ratings, segments, the day's story.
-8. **Filed away**: a day's originals move from TMP to
+7. **Sorted into trips** (Omnix gap 117, built 2026-11-16): the TMP
+   sorter (home's «TMP · N new», or `dailix tmp`) shows TMP's videos by
+   the day they were filmed; the picked are filed into a trip (an
+   existing one or a new one) and into its parts, named lists of its
+   clips across days («Rides on Kos»). Filing copies them into the
+   trip's `01_footage/<day>/` (`add::add`); TMP keeps them, its ledger
+   (`.dailix-filed.json`) saying where each went, for step 8.
+   *Built before steps 1–6: today what's in TMP was put there by hand.*
+8. **Chosen** in the contact sheet, on the trip's days: as Kos is
+   now, ratings, segments, the day's story; a part's clips alone if
+   asked.
+9. **Filed away**: a day's originals move from TMP to
    `sources/<trip>/<day>/`, each hash checked at the destination before
    TMP's copy goes (on the same disk it's a rename, instant). The day's
    manifest goes with them; `MANIFEST.md` for the trip is written or
    added to, as Kos's archive has one.
-9. **Handed over**: the chosen clips are copied into the trip's project
+10. **Handed over**: the chosen clips are copied into the trip's project
    (`01_footage/<day>/`), the marking already there.
-10. **TMP freed** only for days whose sources copy is verified; it shows
+11. **TMP freed** only for days whose sources copy is verified; it shows
     what goes and what stays.
 
 ## Fingerprints, catalogue, manifests
