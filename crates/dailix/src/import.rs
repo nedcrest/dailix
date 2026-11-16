@@ -4,7 +4,8 @@
 //! the analysis and the cleaned voices in `dailix/`, and the numbered
 //! folders' material.
 //!
-//! What's left behind on purpose (`docs/CONTEXT.md`, "don't inherit"): the
+//! What's left behind on purpose (don't inherit, improve: the old project's
+//! leftovers would only be carried along): the
 //! web page's view state, DJI's LRF proxies (they stay in the archive),
 //! the web sheet's thumbnails and browser previews, finished exports, old
 //! edits (they name the old paths) and the old trash.

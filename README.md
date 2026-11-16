@@ -100,7 +100,7 @@ dailix install                 the icon and a desktop entry (Linux; Omnix's inst
 ```
 
 The marking's format and the ops that change it: Omnix's `docs/SHEET-CORE.md` (the sheet core, `crates/sheet`, lives in Omnix's repo).
-Where the project stands and what's next: `docs/CONTEXT.md`.
+Where the project stands and what's next: the roadmap, in Omnix's `docs/omnix/ROADMAP.md`.
 
 ## Building
 

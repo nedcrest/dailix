@@ -29,7 +29,7 @@ Missing there, needed here (gap 34's list):
 - the device named per clip;
 - progress, and a clear end.
 
-Left behind (`CONTEXT.md`, "don't inherit"): taking "today's files" by
+Left behind on purpose (don't inherit, improve): taking "today's files" by
 the file's modified time (a phone's copy has the copy's time), and
 writing straight into a project folder.
 

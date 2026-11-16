@@ -1,6 +1,5 @@
 //! Dailix: bringing footage in and choosing it. The window (`app`), and
-//! the command line for tests and an AI: the same core under both
-//! (`docs/CONTEXT.md`).
+//! the command line for tests and an AI: the same core under both.
 
 mod add;
 mod app;

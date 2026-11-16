@@ -5,7 +5,8 @@ description: The rules for changing Dailix's code, and the checks before a commi
 
 # Changing Dailix's code
 
-`docs/CONTEXT.md` holds the why ("Published some day", "Don't inherit,
+`.analysis/CONTEXT.md` (local, not in git; backed up in the private
+notes repo) holds the why ("Published some day", "Don't inherit,
 improve"); Omnix's `docs/SHEET-CORE.md` the sheet core's design. This page is what
 to hold in mind while writing, learned from the audit of 2026-11-05 (its
 list: in Omnix's git history; what was kept: its `docs/omnix/ARCHITECTURE.md`): the cost was the same
@@ -77,4 +78,4 @@ cargo build -q && cargo test -q    # never commit what doesn't build
 
 - One local commit per subtask, saying why; never push.
 - A change the user will see: Omnix's roadmap card (its `roadmap` skill).
-- `docs/CONTEXT.md` «Where it stands» rewritten, not appended.
+- `.analysis/CONTEXT.md` «Where it stands» rewritten, not appended.
