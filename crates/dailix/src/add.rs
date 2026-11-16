@@ -65,7 +65,7 @@ pub fn target_name(pick: &Pick) -> String {
 }
 
 /// What ffprobe says of a video.
-fn probe(file: &Path) -> Result<Technical, Error> {
+pub(crate) fn probe(file: &Path) -> Result<Technical, Error> {
     let out = omnix::sound::tool("ffprobe").args(["-v", "error", "-print_format", "json", "-show_format", "-show_streams"]).arg(file).output()?;
     if !out.status.success() {
         return Err(format!("{} isn't a video ffprobe can read", file.display()).into());
@@ -191,6 +191,11 @@ fn place(layout: &Layout, pick: &Pick, on: &str, target: &str, source: Technical
     // There already: left as it is, its sidecar written if it has none
     // (copied in by hand, the Kos trip's phone days).
     if to.exists() {
+        // Another file of the same name (two cameras' DJI_0001 of one
+        // day): never taken for this one, so never left out unsaid.
+        if pick.span.is_none() && !same_size(&pick.file, &to) {
+            return Err(format!("another {target} is there already; rename this file first").into());
+        }
         if side.exists() {
             return Ok(What::There);
         }
@@ -207,6 +212,12 @@ fn place(layout: &Layout, pick: &Pick, on: &str, target: &str, source: Technical
     let tech = if pick.span.is_some() { Technical { created_at: source.created_at.clone(), ..probe(&to)? } } else { source };
     write_sidecar(layout, on, target, &tech)?;
     Ok(What::Added(tech.duration_s))
+}
+
+/// Whether two files are as long as each other (a file copied in whole
+/// is; another of its name almost never).
+fn same_size(a: &Path, b: &Path) -> bool {
+    matches!((std::fs::metadata(a), std::fs::metadata(b)), (Ok(x), Ok(y)) if x.len() == y.len())
 }
 
 /// What `add` said, in a line: how many went in and under which days,

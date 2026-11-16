@@ -10,6 +10,7 @@ mod library;
 mod editor;
 mod install;
 mod settings;
+mod tmp;
 mod ui;
 mod voice;
 
@@ -62,6 +63,10 @@ enum Command {
         #[arg(long)]
         day: Option<String>,
     },
+    /// The TMP place (gap 117): its videos by day and where each went;
+    /// filing them into a trip.
+    #[command(subcommand)]
+    Tmp(TmpCmd),
     /// The contact sheet's marking (a project's `dailix/sheet.json`).
     #[command(subcommand)]
     Sheet(SheetCmd),
@@ -147,6 +152,48 @@ enum SheetCmd {
         #[arg(value_enum, default_value = "ops")]
         of: SchemaOf,
     },
+}
+
+#[derive(Subcommand)]
+enum TmpCmd {
+    /// TMP's videos, a day at a time: each one's length, and the trip,
+    /// day and name it was filed under (or «new»).
+    List,
+    /// Videos of TMP filed into a trip: copied in under the day each was
+    /// filmed (or --day), put into the parts named (made if the trip
+    /// hasn't them). TMP keeps them, and its ledger says where they went.
+    File {
+        trip: PathBuf,
+        /// TMP's videos: their places from TMP's top, or paths.
+        #[arg(required = true)]
+        files: Vec<PathBuf>,
+        /// The day to put them under instead (YYYY-MM-DD).
+        #[arg(long)]
+        day: Option<String>,
+        /// A part of the trip to put them into; again for more.
+        #[arg(long)]
+        part: Vec<String>,
+    },
+}
+
+/// `dailix tmp …`.
+fn tmp_cmd(cmd: TmpCmd) -> Result<(), Box<dyn std::error::Error>> {
+    let place = settings::Settings::load().tmp.filter(|d| d.is_dir()).ok_or("TMP isn't set, or isn't there (dailix places --tmp FOLDER)")?;
+    match cmd {
+        TmpCmd::List => print!("{}", tmp::describe(&tmp::scan(&place), &tmp::Ledger::load(&place))),
+        TmpCmd::File { trip, files, day, part } => {
+            let files: Vec<PathBuf> = files.into_iter().map(|f| if f.is_absolute() { f } else { place.join(f) }).collect();
+            let said = tmp::file(&place, &trip, &files, day.as_deref(), &part)?;
+            for line in &said {
+                println!("{line}");
+            }
+            let failed = said.iter().filter(|s| matches!(s.what, add::What::Failed(_))).count();
+            if failed > 0 {
+                return Err(format!("{failed} not filed").into());
+            }
+        }
+    }
+    Ok(())
 }
 
 #[derive(Subcommand)]
@@ -383,6 +430,7 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
         Command::Open { .. } | Command::NewTrip { title: None, .. } => unreachable!("the window is opened in main"),
         Command::Sheet(cmd) => cmd,
         Command::Voice(cmd) => return voice_cmd(cmd),
+        Command::Tmp(cmd) => return tmp_cmd(cmd),
         c @ (Command::ImportLegacy { .. } | Command::NewTrip { .. } | Command::Places { .. } | Command::Trips { .. }) => return places_cmd(c),
         c @ (Command::About { .. } | Command::Add { .. } | Command::TidyEdits { .. } | Command::Title { .. }) => return trip_cmd(c),
         Command::Keys => {
