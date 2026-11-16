@@ -166,6 +166,8 @@ struct App {
     /// A part being renamed on its trip's page: the trip, its name, the
     /// name typed.
     part_naming: Option<(PathBuf, String, String)>,
+    /// A trip's page's sections folded away (Edits, Parts, Days).
+    trip_folded: HashSet<&'static str>,
 }
 
 #[derive(Debug, Clone)]
@@ -298,6 +300,8 @@ enum Message {
     Sort(sorter::SortMsg),
     /// A trip's parts (gap 117).
     Part(parts_view::PartMsg),
+    /// A trip's page's section folded away, or back.
+    FoldTrip(&'static str),
 }
 
 /// The tiles' list: its id, for scrolling it.
@@ -389,7 +393,7 @@ impl App {
             Start::NewTrip => (None, true),
         };
         let settings = Settings::load();
-        let mut app = App { project: None, error: None, notice: None, making: HashSet::new(), voice_makes: HashSet::new(), drafts: HashMap::new(), dirty: HashSet::new(), selected: None, pane: pane::Pane::default(), height: 920.0, scale: settings.scale.unwrap_or(1.0), width: 1500.0, pane_share: settings.pane_share.unwrap_or(pane::SHARE), grip: None, help: false, settings_open: None, at_home: true, card_hover: None, edit_frames: Default::default(), trips: Vec::new(), places: Vec::new(), naming: None, choosing: None, deleting: None, trip_open: None, about: Default::default(), new_trip: None, menu: None, about_open: false, adding: HashSet::new(), change_error: None, close_anyway: false, filter: Default::default(), tile_hover: None, sorter: None, tmp_new: 0, part: None, part_naming: None, folded: HashSet::new(), story_edits: 0, days_list: true, making_edits: HashSet::new(), settings };
+        let mut app = App { project: None, error: None, notice: None, making: HashSet::new(), voice_makes: HashSet::new(), drafts: HashMap::new(), dirty: HashSet::new(), selected: None, pane: pane::Pane::default(), height: 920.0, scale: settings.scale.unwrap_or(1.0), width: 1500.0, pane_share: settings.pane_share.unwrap_or(pane::SHARE), grip: None, help: false, settings_open: None, at_home: true, card_hover: None, edit_frames: Default::default(), trips: Vec::new(), places: Vec::new(), naming: None, choosing: None, deleting: None, trip_open: None, about: Default::default(), new_trip: None, menu: None, about_open: false, adding: HashSet::new(), change_error: None, close_anyway: false, filter: Default::default(), tile_hover: None, sorter: None, tmp_new: 0, part: None, part_naming: None, trip_folded: HashSet::new(), folded: HashSet::new(), story_edits: 0, days_list: true, making_edits: HashSet::new(), settings };
         // A project named opens; else where the window was left (home on
         // the first run, or when it was left there).
         app.refresh_home();
@@ -668,7 +672,7 @@ impl App {
             Message::ShowFolder(p) => self.error = crate::editor::show(&p).err(),
             Message::Back => return self.back(),
             m @ (Message::Menu(_) | Message::MenuAt(_) | Message::MenuDo(_)) => return self.on_menu(m),
-            m @ (Message::ToOmnix(..) | Message::EmptyDay(..) | Message::Name(_) | Message::NameEdit(_) | Message::NameSave | Message::Home | Message::OpenDay(..) | Message::OpenTrip(_) | Message::TripCard(..) | Message::CardTick | Message::EditCard(..) | Message::EditFrames(..) | Message::AddVideos(_) | Message::VideosPicked(..) | Message::VideosAdded(..) | Message::DeleteAsk(_) | Message::DeleteCounted(..) | Message::DeleteCancel | Message::DeleteConfirm | Message::Deleted(..) | Message::AboutDescription(_) | Message::AboutTags(_) | Message::AboutSave | Message::OpenEdit(_) | Message::ChooseNew | Message::ChooseCancel | Message::EditMade(..)) => return self.on_home(m),
+            m @ (Message::ToOmnix(..) | Message::EmptyDay(..) | Message::Name(_) | Message::NameEdit(_) | Message::NameSave | Message::Home | Message::OpenDay(..) | Message::OpenTrip(_) | Message::TripCard(..) | Message::CardTick | Message::EditCard(..) | Message::EditFrames(..) | Message::AddVideos(_) | Message::VideosPicked(..) | Message::VideosAdded(..) | Message::DeleteAsk(_) | Message::DeleteCounted(..) | Message::DeleteCancel | Message::DeleteConfirm | Message::Deleted(..) | Message::AboutDescription(_) | Message::AboutTags(_) | Message::AboutSave | Message::OpenEdit(_) | Message::ChooseNew | Message::ChooseCancel | Message::EditMade(..) | Message::FoldTrip(_)) => return self.on_home(m),
             m @ (Message::Settings | Message::SettingsGroup(_) | Message::ChoosePlace(_) | Message::PlaceChosen(..) | Message::CardMotion(_) | Message::UseDefaultPlaces) => return self.on_settings(m),
             m @ (Message::NewTrip | Message::NewTripTitle(_) | Message::NewTripFolder(_) | Message::NewTripDescription(_) | Message::NewTripTags(_) | Message::NewTripMake | Message::NewTripCancel) => return self.on_new_trip(m),
             m @ (Message::Grip | Message::Pointer(_) | Message::Release | Message::Placed(_) | Message::Scale(_)) => return self.on_layout(m),

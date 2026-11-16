@@ -9,7 +9,7 @@ use super::{App, Message, blocking, tip};
 use crate::library::Trip;
 use crate::ui;
 use dailix_sheet::{Op, PartOp};
-use iced::widget::{button, checkbox, column, pick_list, row, space, text, text_input, tooltip};
+use iced::widget::{checkbox, column, pick_list, row, space, text, text_input, tooltip};
 use iced::{Alignment, Element, Length, Task};
 use std::path::PathBuf;
 
@@ -33,6 +33,8 @@ pub enum PartMsg {
     RenameSave,
     /// A part taken away; its clips stay in the trip.
     Remove(PathBuf, String),
+    /// The pointer on a part's card, or a click on it (opened in the sheet).
+    Card(PathBuf, String, omnix::cards::view::Event),
 }
 
 /// The filter's choice: every clip, or a part's.
@@ -51,6 +53,11 @@ pub fn days_of(clips: &[String]) -> Vec<&str> {
     days.sort_unstable();
     days.dedup();
     days
+}
+
+/// The key a part's card is hovered by (beside trips' and edits' paths).
+pub fn card_key(root: &std::path::Path, part: &str) -> PathBuf {
+    root.join(".part").join(part)
 }
 
 /// Whether the sheet's part filter `part` shows clip `key` (`parts`: the
@@ -99,6 +106,22 @@ impl App {
                 }
             }
             PartMsg::Remove(root, part) => self.part_op(&root, PartOp::Remove { part }),
+            PartMsg::Card(root, part, e) => {
+                use omnix::cards::view::Event;
+                let key = card_key(&root, &part);
+                match e {
+                    Event::Open => {
+                        self.card_hover = None;
+                        return self.on_part(PartMsg::Open(root, part));
+                    }
+                    Event::Enter => self.card_hover = Some((key, std::time::Instant::now())),
+                    Event::Exit => {
+                        if self.card_hover.as_ref().is_some_and(|(c, _)| *c == key) {
+                            self.card_hover = None;
+                        }
+                    }
+                }
+            }
             PartMsg::Made(part, made) => {
                 self.making_edits.retain(|(_, d)| d.as_deref() != Some(format!("part {part}").as_str()));
                 match made.and_then(|edit| crate::editor::open(&edit).map(|()| edit)) {
@@ -126,30 +149,41 @@ impl App {
         self.refresh_home();
     }
 
-    /// The trip page's parts: a row each.
+    /// The trip page's parts: a card each, its clips' frames as a mosaic
+    /// (as a trip's card; a click opens it in the sheet), its name and
+    /// facts, and under it «→ Omnix», rename and ✕.
     pub(super) fn trip_parts<'a>(&'a self, trip: &'a Trip) -> Element<'a, Message> {
-        let mut col = column![text("Parts").size(15)].spacing(6);
-        if trip.parts.is_empty() {
-            return col.push(text("None yet: the TMP sorter puts clips into parts as it files them, and the sheet's pane ticks a clip into one.").size(12).style(text::secondary)).into();
+        let what = text("This trip's videos from TMP, in groups of your own across days («Rides on Kos»): the TMP sorter fills them as it files, the sheet's pane ticks a clip in.").size(12).style(text::secondary);
+        let col = column![self.fold_head("Parts", trip.parts.len()), what].spacing(6);
+        if self.trip_folded.contains("Parts") || trip.parts.is_empty() {
+            return col.into();
         }
-        for p in &trip.parts {
-            let days = days_of(&p.clips);
-            let when = match (days.first(), days.last()) {
-                (Some(a), Some(b)) if a != b => format!("{a} – {b}"),
-                (Some(a), _) => (*a).to_owned(),
-                _ => "empty".to_owned(),
-            };
-            let facts = text(format!("{} · {}", crate::library::count(p.clips.len(), "clip"), when)).size(12).style(text::secondary);
-            let open = tip(ui::small("Sheet", ui::Kind::Secondary).on_press_maybe((!p.clips.is_empty()).then(|| Message::Part(PartMsg::Open(trip.root.clone(), p.name.clone())))), text("The contact sheet showing this part's clips only"), tooltip::Position::Bottom);
-            let go = tip(ui::small("→ Omnix", ui::Kind::Secondary).on_press_maybe((!p.clips.is_empty()).then(|| Message::Part(PartMsg::ToOmnix(trip.root.clone(), p.name.clone())))), text("An edit of this part's clips, from any day (junk left out), opened in Omnix"), tooltip::Position::Bottom);
-            let name: Element<'a, Message> = match &self.part_naming {
-                Some((root, part, typed)) if *root == trip.root && *part == p.name => text_input("the part's name", typed).id(PART_NAME).size(14).width(220).on_input(|t| Message::Part(PartMsg::Typed(t))).on_submit(Message::Part(PartMsg::RenameSave)).into(),
-                _ => tip(button(text(p.name.clone()).size(14)).padding(0).style(button::text).on_press(Message::Part(PartMsg::Rename(trip.root.clone(), p.name.clone()))).width(220), text("Rename the part"), tooltip::Position::Bottom),
-            };
-            let remove = tip(ui::small("✕", ui::Kind::Quiet).on_press(Message::Part(PartMsg::Remove(trip.root.clone(), p.name.clone()))), text("Take the part away: its clips stay in the trip"), tooltip::Position::Bottom);
-            col = col.push(row![name, facts, space().width(Length::Fill), open, go, remove].spacing(10).align_y(Alignment::Center).width(Length::Fixed(880.0)));
-        }
-        col.into()
+        let cards = trip.parts.iter().zip(&trip.part_frames).map(|(p, frames)| self.part_card(trip, p, frames));
+        col.push(iced::widget::row(cards).spacing(14).wrap().vertical_spacing(14)).into()
+    }
+
+    fn part_card<'a>(&'a self, trip: &'a Trip, p: &'a dailix_sheet::Part, frames: &'a omnix::cards::view::Frames) -> Element<'a, Message> {
+        let days = days_of(&p.clips);
+        let when = match (days.first(), days.last()) {
+            (Some(a), Some(b)) if a != b => format!("{a} – {b}"),
+            (Some(a), _) => (*a).to_owned(),
+            _ => "empty".to_owned(),
+        };
+        let info = column![text(p.name.clone()).size(17), text(format!("{} · {when}", crate::library::count(p.clips.len(), "clip"))).size(12).style(text::secondary)].spacing(4);
+        let key = card_key(&trip.root, &p.name);
+        let hovered = self.card_hover.as_ref().filter(|(c, _)| *c == key).map(|(_, since)| self.settings.card_motion().then(|| since.elapsed()));
+        let (root, name) = (trip.root.clone(), p.name.clone());
+        let card = omnix::cards::view::card(frames, hovered, super::home::TRIP_CARD, true, info.into(), 48.0, move |e| Message::Part(PartMsg::Card(root.clone(), name.clone(), e)));
+        let below: Element<'a, Message> = match &self.part_naming {
+            Some((root, part, typed)) if *root == trip.root && *part == p.name => text_input("the part's name", typed).id(PART_NAME).size(14).on_input(|t| Message::Part(PartMsg::Typed(t))).on_submit(Message::Part(PartMsg::RenameSave)).into(),
+            _ => {
+                let go = tip(ui::small("→ Omnix", ui::Kind::Secondary).on_press_maybe((!p.clips.is_empty()).then(|| Message::Part(PartMsg::ToOmnix(trip.root.clone(), p.name.clone())))), text("An edit of this part's clips, from any day (junk left out), opened in Omnix"), tooltip::Position::Bottom);
+                let rename = tip(ui::small("Rename", ui::Kind::Quiet).on_press(Message::Part(PartMsg::Rename(trip.root.clone(), p.name.clone()))), text("Rename the part"), tooltip::Position::Bottom);
+                let remove = tip(ui::small("✕", ui::Kind::Quiet).on_press(Message::Part(PartMsg::Remove(trip.root.clone(), p.name.clone()))), text("Take the part away: its clips stay in the trip"), tooltip::Position::Bottom);
+                row![go, space().width(Length::Fill), rename, remove].spacing(6).align_y(Alignment::Center).into()
+            }
+        };
+        column![card, below].spacing(4).width(super::home::TRIP_CARD + 12.0).into()
     }
 
     /// The contact sheet's «Part» filter, when the trip has parts.

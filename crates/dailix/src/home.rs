@@ -18,7 +18,7 @@ pub(super) const NAME: &str = "project-name";
 
 /// A day card's width, and a trip card's; their posters are 16:9.
 const CARD: f32 = 200.0;
-const TRIP_CARD: f32 = 320.0;
+pub(super) const TRIP_CARD: f32 = 320.0;
 /// An edit's card, two side by side in the question before a new one.
 const EDIT_CARD: f32 = 236.0;
 /// Between cards in a row.
@@ -166,6 +166,11 @@ impl App {
                 self.settings.last_trip = self.trip_open.clone();
                 let _ = self.settings.save();
             }
+            Message::FoldTrip(title) => {
+                if !self.trip_folded.remove(title) {
+                    self.trip_folded.insert(title);
+                }
+            }
             Message::AboutDescription(typed) => self.about.0 = typed,
             Message::AboutTags(typed) => self.about.1 = typed,
             Message::AboutSave => {
@@ -239,7 +244,8 @@ impl App {
     /// frames to change to (`omnix::cards::view::moves`).
     pub(super) fn card_moving(&self) -> bool {
         let Some((card, _)) = self.card_hover.as_ref().filter(|_| self.settings.card_motion()) else { return false };
-        let frames = self.trips.iter().find(|t| &t.root == card).map_or_else(|| self.edit_frames.get(card), |t| &t.frames);
+        let part = self.trips.iter().find_map(|t| t.parts.iter().position(|p| super::parts_view::card_key(&t.root, &p.name) == *card).map(|i| &t.part_frames[i]));
+        let frames = part.or_else(|| self.trips.iter().find(|t| &t.root == card).map(|t| &t.frames)).unwrap_or_else(|| self.edit_frames.get(card));
         omnix::cards::view::moves(frames.0.len())
     }
 
@@ -611,16 +617,26 @@ impl App {
         ]
         .spacing(6)
         .max_width(860);
-        let mut edits = column![text("Edits").size(15)].spacing(4);
-        if trip.edits.is_empty() {
+        let mut edits = column![self.fold_head("Edits", trip.edits.len())].spacing(4);
+        if self.trip_folded.contains("Edits") {
+        } else if trip.edits.is_empty() {
             edits = edits.push(text("None yet: → Omnix makes one from the marking (▾: an empty one).").size(12).style(text::secondary));
         }
         // A click on the card opens it; its ⋯ under it holds the rest, the
         // trash last (a red button under every card was too loud).
         let more = |e: &PathBuf| row![space().width(Length::Fill), super::menu::opener("⋯", super::menu::Menu::Edit(e.clone()), ui::Kind::Quiet, true)];
-        edits = edits.push(iced::widget::row(trip.edits.iter().map(|e| column![self.edit_card(e, ""), more(e)].spacing(2).width(EDIT_CARD).into())).spacing(14).wrap().vertical_spacing(14));
-        let cards = iced::widget::row(trip.days.iter().map(|d| self.day_card(trip, d))).spacing(10).wrap().vertical_spacing(10);
-        column![head, about, edits, self.trip_parts(trip), text("Days").size(15), cards].spacing(12).into()
+        if !self.trip_folded.contains("Edits") {
+            edits = edits.push(iced::widget::row(trip.edits.iter().map(|e| column![self.edit_card(e, ""), more(e)].spacing(2).width(EDIT_CARD).into())).spacing(14).wrap().vertical_spacing(14));
+        }
+        let cards = (!self.trip_folded.contains("Days")).then(|| iced::widget::row(trip.days.iter().map(|d| self.day_card(trip, d))).spacing(10).wrap().vertical_spacing(10));
+        column![head, about, edits, self.trip_parts(trip), self.fold_head("Days", trip.days.len())].push(cards).spacing(12).into()
+    }
+
+    /// A section's heading on a trip's page: a click folds it away or back
+    /// (the user, 2026-11-17: the days took the page).
+    pub(super) fn fold_head<'a>(&self, title: &'static str, n: usize) -> Element<'a, Message> {
+        let mark = if self.trip_folded.contains(title) { "▸" } else { "▾" };
+        button(text(format!("{mark} {title} · {n}")).size(15)).padding(0).style(button::text).on_press(Message::FoldTrip(title)).into()
     }
 
     /// A day as a card; a click opens it in the contact sheet.

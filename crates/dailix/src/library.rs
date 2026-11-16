@@ -58,6 +58,8 @@ pub struct Trip {
     pub edits: Vec<PathBuf>,
     /// Its parts (gap 117): named lists of its clips.
     pub parts: Vec<dailix_sheet::Part>,
+    /// Each part's card frames (its clips' posters), in the parts' order.
+    pub part_frames: Vec<omnix::cards::view::Frames>,
     /// Its card's frames (Omnix's project cards, gap 110): up to 16 of
     /// its clips' posters made so far, spread over its days in order.
     pub frames: omnix::cards::view::Frames,
@@ -114,7 +116,11 @@ pub fn trip(root: &Path) -> Result<Trip, String> {
         .collect();
     let posters: Vec<PathBuf> = footage.days.iter().flat_map(|d| d.clips.iter().map(|c| c.poster.clone())).filter(|p| p.is_file()).collect();
     let frames = omnix::cards::view::Frames::from_files(&omnix::cards::spread(&posters, omnix::cards::FRAMES));
-    Ok(Trip { root: root.to_owned(), title, about: dailix_sheet::project::about(root), days, edits: dailix_sheet::project::edits(root), parts: sheet.parts, frames })
+    let part_frames = sheet.parts.iter().map(|p| {
+        let posters: Vec<PathBuf> = p.clips.iter().map(|k| layout.poster(k)).filter(|f| f.is_file()).collect();
+        omnix::cards::view::Frames::from_files(&omnix::cards::spread(&posters, omnix::cards::FRAMES))
+    }).collect();
+    Ok(Trip { root: root.to_owned(), title, about: dailix_sheet::project::about(root), days, edits: dailix_sheet::project::edits(root), parts: sheet.parts, part_frames, frames })
 }
 
 /// `n` of `one` in words: «1 clip», «2 clips», «0 clips».
