@@ -13,4 +13,4 @@
 # Our working notes, kept out of the repo: this machine's paths
 # (LOCAL.md) and whatever needs attention now (`.analysis/`, the user's
 # workstation convention; publishing, Omnix gap 109).
-/.analysis/
+/.analysis
