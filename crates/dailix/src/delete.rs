@@ -76,6 +76,26 @@ pub fn trash(doomed: &Doomed) -> Result<(), String> {
     Ok(())
 }
 
+/// Clips `keys` (`<day>/<file>`) of the trip at `root` to the trash: the
+/// copy, its sidecar and its poster. A copy of a TMP video taken out of
+/// its trip so (the user, 2026-11-17) makes it new in TMP again. How
+/// many clips went.
+pub fn trash_clips(root: &Path, keys: &[String]) -> Result<usize, String> {
+    let layout = dailix_sheet::Layout::new(root);
+    let mut gone = 0;
+    for key in keys {
+        let Some((day, name)) = key.split_once('/') else { continue };
+        let files = [layout.clip(key), dailix_sheet::footage::sidecar_path(&layout, day, name), layout.poster(key)];
+        let there: Vec<&PathBuf> = files.iter().filter(|f| f.exists()).collect();
+        if there.is_empty() {
+            continue;
+        }
+        trash::delete_all(there).map_err(|e| format!("{key}: {e}"))?;
+        gone += 1;
+    }
+    Ok(gone)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

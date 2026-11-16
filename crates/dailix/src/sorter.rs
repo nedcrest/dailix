@@ -162,7 +162,7 @@ impl App {
         self.trip_open = None;
         let trip = self.sorter.as_ref().and_then(|s| s.trip.clone());
         let share = tmp::player_share(self.settings.sorter_player.unwrap_or(0.32));
-        self.sorter = Some(Sorter { scanning: true, ledger: tmp::Ledger::load(&place), trip, share, ..Default::default() });
+        self.sorter = Some(Sorter { scanning: true, ledger: tmp::Ledger::now(&place, self.settings.projects.as_deref()), trip, share, ..Default::default() });
         Task::perform(blocking(move || tmp::scan(&place)), |raws| Message::Sort(SortMsg::Scanned(raws)))
     }
 
@@ -283,7 +283,7 @@ impl App {
         let place = self.tmp_place();
         let Some(s) = self.sorter.as_mut() else { return Task::none() };
         if let Some(p) = place {
-            s.ledger = tmp::Ledger::load(&p);
+            s.ledger = tmp::Ledger::now(&p, self.settings.projects.as_deref());
         }
         let Some(f) = s.filing.as_mut() else { return Task::none() };
         f.done += 1;

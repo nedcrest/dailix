@@ -168,6 +168,8 @@ struct App {
     part_naming: Option<(PathBuf, String, String)>,
     /// A trip's page's sections folded away (Edits, Parts, Days).
     trip_folded: HashSet<&'static str>,
+    /// A part asked about before it goes (with its videos or not).
+    part_removing: Option<parts_view::Removal>,
 }
 
 #[derive(Debug, Clone)]
@@ -393,7 +395,7 @@ impl App {
             Start::NewTrip => (None, true),
         };
         let settings = Settings::load();
-        let mut app = App { project: None, error: None, notice: None, making: HashSet::new(), voice_makes: HashSet::new(), drafts: HashMap::new(), dirty: HashSet::new(), selected: None, pane: pane::Pane::default(), height: 920.0, scale: settings.scale.unwrap_or(1.0), width: 1500.0, pane_share: settings.pane_share.unwrap_or(pane::SHARE), grip: None, help: false, settings_open: None, at_home: true, card_hover: None, edit_frames: Default::default(), trips: Vec::new(), places: Vec::new(), naming: None, choosing: None, deleting: None, trip_open: None, about: Default::default(), new_trip: None, menu: None, about_open: false, adding: HashSet::new(), change_error: None, close_anyway: false, filter: Default::default(), tile_hover: None, sorter: None, tmp_new: 0, part: None, part_naming: None, trip_folded: HashSet::new(), folded: HashSet::new(), story_edits: 0, days_list: true, making_edits: HashSet::new(), settings };
+        let mut app = App { project: None, error: None, notice: None, making: HashSet::new(), voice_makes: HashSet::new(), drafts: HashMap::new(), dirty: HashSet::new(), selected: None, pane: pane::Pane::default(), height: 920.0, scale: settings.scale.unwrap_or(1.0), width: 1500.0, pane_share: settings.pane_share.unwrap_or(pane::SHARE), grip: None, help: false, settings_open: None, at_home: true, card_hover: None, edit_frames: Default::default(), trips: Vec::new(), places: Vec::new(), naming: None, choosing: None, deleting: None, trip_open: None, about: Default::default(), new_trip: None, menu: None, about_open: false, adding: HashSet::new(), change_error: None, close_anyway: false, filter: Default::default(), tile_hover: None, sorter: None, tmp_new: 0, part: None, part_naming: None, trip_folded: HashSet::new(), part_removing: None, folded: HashSet::new(), story_edits: 0, days_list: true, making_edits: HashSet::new(), settings };
         // A project named opens; else where the window was left (home on
         // the first run, or when it was left there).
         app.refresh_home();
@@ -722,9 +724,9 @@ impl App {
     /// audit, 2026-11-12: Esc didn't close it), the new trip's form (its
     /// fields take what they type), Settings. Whether one was open.
     fn over_the_page(&mut self, esc: bool) -> bool {
-        let open = self.help || self.about_open || self.menu.is_some() || self.choosing.is_some() || self.new_trip.is_some() || self.settings_open.is_some() || self.deleting.is_some();
+        let open = self.help || self.about_open || self.menu.is_some() || self.choosing.is_some() || self.new_trip.is_some() || self.settings_open.is_some() || self.deleting.is_some() || self.part_removing.is_some();
         if open && esc {
-            (self.help, self.about_open, self.menu, self.choosing, self.new_trip, self.settings_open, self.deleting) = (false, false, None, None, None, None, None);
+            (self.help, self.about_open, self.menu, self.choosing, self.new_trip, self.settings_open, self.deleting, self.part_removing) = (false, false, None, None, None, None, None, None);
         }
         open
     }
@@ -862,7 +864,7 @@ impl App {
     /// always there (empty when hidden), so the window under it keeps its
     /// state (a scroll, a field's focus) when the list comes up.
     fn view(&self) -> Element<'_, Message> {
-        iced::widget::stack![self.page(), self.menu_layer(), self.settings_layer(), self.new_trip_layer(), self.choose_layer(), self.delete_layer(), self.help_layer(), self.about_layer()].into()
+        iced::widget::stack![self.page(), self.menu_layer(), self.settings_layer(), self.new_trip_layer(), self.choose_layer(), self.delete_layer(), self.part_remove_layer(), self.help_layer(), self.about_layer()].into()
     }
 
     fn help_layer(&self) -> Element<'_, Message> {

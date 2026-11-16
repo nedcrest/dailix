@@ -33,6 +33,10 @@ pub enum PartMsg {
     RenameSave,
     /// A part taken away; its clips stay in the trip.
     Remove(PathBuf, String),
+    /// The question before a part goes: cancelled, the part only, or the
+    /// part and the videos only it holds.
+    RemoveCancel,
+    RemoveConfirm(bool),
     /// The pointer on a part's card, or a click on it (opened in the sheet).
     Card(PathBuf, String, omnix::cards::view::Event),
 }
@@ -53,6 +57,29 @@ pub fn days_of(clips: &[String]) -> Vec<&str> {
     days.sort_unstable();
     days.dedup();
     days
+}
+
+/// A part asked about before it goes: the videos only it holds (none
+/// rated, noted or marked: those stay), and how many stay for being
+/// elsewhere or marked.
+#[derive(Debug, Clone)]
+pub struct Removal {
+    pub root: PathBuf,
+    pub part: String,
+    pub gone: Vec<String>,
+    pub kept: usize,
+}
+
+/// The clips of part `part` that can leave the trip with it: in no other
+/// part, and nothing the user did to them in the sheet (a rating, a note,
+/// a mark); and how many of its clips stay.
+pub fn removable(sheet: &dailix_sheet::Sheet, part: &str) -> (Vec<String>, usize) {
+    let Some(p) = sheet.part(part) else { return (Vec::new(), 0) };
+    let untouched = |k: &String| sheet.clips.get(k).is_none_or(|c| c.rating.is_none() && c.note.is_empty() && c.marks.is_empty());
+    let elsewhere = |k: &String| sheet.parts.iter().any(|o| !dailix_sheet::parts::same_name(&o.name, part) && o.clips.contains(k));
+    let gone: Vec<String> = p.clips.iter().filter(|k| untouched(k) && !elsewhere(k)).cloned().collect();
+    let kept = p.clips.len() - gone.len();
+    (gone, kept)
 }
 
 /// The key a part's card is hovered by (beside trips' and edits' paths).
@@ -105,7 +132,22 @@ impl App {
                     self.part_op(&root, PartOp::Rename { part, name });
                 }
             }
-            PartMsg::Remove(root, part) => self.part_op(&root, PartOp::Remove { part }),
+            PartMsg::Remove(root, part) => {
+                let sheet = dailix_sheet::Store::new(dailix_sheet::Layout::new(&root).sheet()).read().ok().and_then(|d| d.sheet().ok()).unwrap_or_default();
+                let (gone, kept) = removable(&sheet, &part);
+                self.part_removing = Some(Removal { root, part, gone, kept });
+            }
+            PartMsg::RemoveCancel => self.part_removing = None,
+            PartMsg::RemoveConfirm(videos) => {
+                let Some(r) = self.part_removing.take() else { return Task::none() };
+                if videos && let Err(e) = crate::delete::trash_clips(&r.root, &r.gone) {
+                    self.error = Some(format!("Not every video went to the trash: {e}"));
+                }
+                self.part_op(&r.root, PartOp::Remove { part: r.part });
+                if videos && self.project.as_ref().is_some_and(|p| p.footage.layout.root == r.root) {
+                    return self.load(r.root);
+                }
+            }
             PartMsg::Card(root, part, e) => {
                 use omnix::cards::view::Event;
                 let key = card_key(&root, &part);
@@ -186,6 +228,26 @@ impl App {
         column![card, below].spacing(4).width(super::home::TRIP_CARD + 12.0).into()
     }
 
+    /// The question before a part goes, over the window.
+    pub(super) fn part_remove_layer(&self) -> Element<'_, Message> {
+        let Some(r) = &self.part_removing else { return space().into() };
+        let to = |m: PartMsg| Message::Part(m);
+        let mut said = format!("Its videos can stay in the trip, or leave it with the part (to the trash, restorable): {} would.", crate::library::count(r.gone.len(), "video"));
+        if r.kept > 0 {
+            said += &format!(" {} stay either way: in another part, or rated, noted or marked.", crate::library::count(r.kept, "video"));
+        }
+        said += " A video that leaves the trip is new in TMP again, if TMP still has it.";
+        let buttons = row![
+            space().width(Length::Fill),
+            ui::act("Cancel", ui::Kind::Secondary).on_press(to(PartMsg::RemoveCancel)),
+            ui::act("The part only", ui::Kind::Secondary).on_press(to(PartMsg::RemoveConfirm(false))),
+            ui::act(format!("With its {}", crate::library::count(r.gone.len(), "video")), ui::Kind::Danger).on_press_maybe((!r.gone.is_empty()).then(|| to(PartMsg::RemoveConfirm(true)))),
+        ]
+        .spacing(8);
+        let card = column![text(format!("Remove the part «{}»?", r.part)).size(20), text(said).size(14).style(text::secondary), buttons].spacing(ui::DIALOG_GAP);
+        super::modal(ui::dialog(card, ui::DIALOG_WIDTH), to(PartMsg::RemoveCancel))
+    }
+
     /// The contact sheet's «Part» filter, when the trip has parts.
     pub(super) fn part_picker<'a>(&'a self, parts: &'a [dailix_sheet::Part]) -> Option<Element<'a, Message>> {
         if parts.is_empty() {
@@ -212,6 +274,16 @@ impl App {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_part_takes_with_it_only_the_videos_nothing_else_holds() {
+        let sheet: dailix_sheet::Sheet = serde_json::from_str(r#"{
+            "clips": {"2026-08-21/rated.MP4": {"rating": 2}, "2026-08-21/marked.MP4": {"marks": [{"t": 1, "end": 3}]}, "2026-08-21/seen.MP4": {"rating": null, "note": "", "marks": []}},
+            "parts": [{"name": "Walking", "clips": ["2026-08-21/a.MP4", "2026-08-21/rated.MP4", "2026-08-21/marked.MP4", "2026-08-21/both.MP4", "2026-08-21/seen.MP4"]},
+                      {"name": "Beach", "clips": ["2026-08-21/both.MP4"]}]}"#).unwrap();
+        assert_eq!(removable(&sheet, "walking"), (vec!["2026-08-21/a.MP4".to_owned(), "2026-08-21/seen.MP4".to_owned()], 3));
+        assert_eq!(removable(&sheet, "Sea"), (Vec::new(), 0));
+    }
 
     #[test]
     fn a_parts_days_are_its_clips_days_once_in_order() {

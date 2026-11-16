@@ -63,6 +63,23 @@ impl Ledger {
         self.files.get(rel).map_or(&[], Vec::as_slice)
     }
 
+    /// Only what's still there (`there`: its copy is in its trip): a
+    /// video whose copy was taken out of the trip is new in TMP again.
+    pub fn keep(&self, there: impl Fn(&Filed) -> bool) -> Ledger {
+        let files = self.files.iter().map(|(rel, went)| (rel.clone(), went.iter().filter(|f| there(f)).cloned().collect::<Vec<_>>())).filter(|(_, went)| !went.is_empty()).collect();
+        Ledger { files }
+    }
+
+    /// The ledger in `tmp` as it stands now: only the copies still in
+    /// their trips (in the `projects` place).
+    pub fn now(tmp: &Path, projects: Option<&Path>) -> Ledger {
+        let ledger = Ledger::load(tmp);
+        match projects {
+            Some(p) => ledger.keep(|f| Layout::new(p.join(&f.trip)).clip(&format!("{}/{}", f.day, f.name)).is_file()),
+            None => ledger,
+        }
+    }
+
     /// `rel` went to `to`; said once however often it's filed there.
     pub fn record(&mut self, rel: &str, to: Filed) {
         let list = self.files.entry(rel.to_owned()).or_default();
@@ -302,6 +319,18 @@ mod tests {
         assert_eq!(Ledger::load(&dir), l);
         assert_eq!(Ledger::load(&dir.join("none")), Ledger::default());
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_video_whose_copy_left_its_trip_is_new_again() {
+        let mut l = Ledger::default();
+        let at = |trip: &str| Filed { trip: trip.into(), day: "2026-08-22".into(), name: "a.MP4".into() };
+        l.record("card/a.MP4", at("kos"));
+        l.record("card/a.MP4", at("island"));
+        l.record("card/b.MP4", at("island"));
+        let now = l.keep(|f| f.trip == "kos");
+        assert_eq!(now.filed("card/a.MP4"), [at("kos")]);
+        assert!(now.filed("card/b.MP4").is_empty() && !now.files.contains_key("card/b.MP4"));
     }
 
     #[test]

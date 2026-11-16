@@ -439,7 +439,7 @@ impl App {
         let (trips, skipped) = self.settings.projects.as_deref().map(library::trips).unwrap_or_default();
         // TMP's new videos counted by their places only (no ffprobe): the
         // button that opens the sorter says it.
-        self.tmp_new = self.settings.tmp.as_deref().filter(|d| d.is_dir()).map_or(0, |t| crate::tmp::new_count(&crate::tmp::Ledger::load(t), crate::tmp::videos(t).iter().map(|p| crate::tmp::rel(t, p)).collect::<Vec<_>>().iter().map(String::as_str)));
+        self.tmp_new = self.settings.tmp.as_deref().filter(|d| d.is_dir()).map_or(0, |t| crate::tmp::new_count(&crate::tmp::Ledger::now(t, self.settings.projects.as_deref()), crate::tmp::videos(t).iter().map(|p| crate::tmp::rel(t, p)).collect::<Vec<_>>().iter().map(String::as_str)));
         self.trips = trips;
         self.places = library::places(&self.settings);
         if let Some(first) = skipped.first() {
