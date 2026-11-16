@@ -9,9 +9,12 @@ use super::{App, Message, blocking, tip};
 use crate::library::Trip;
 use crate::ui;
 use dailix_sheet::{Op, PartOp};
-use iced::widget::{checkbox, column, pick_list, row, space, text, tooltip};
+use iced::widget::{button, checkbox, column, pick_list, row, space, text, text_input, tooltip};
 use iced::{Alignment, Element, Length, Task};
 use std::path::PathBuf;
+
+/// The field a part is renamed in, focused when it opens.
+const PART_NAME: &str = "part-name";
 
 #[derive(Debug, Clone)]
 pub enum PartMsg {
@@ -24,6 +27,12 @@ pub enum PartMsg {
     /// A part's edit made and opened in Omnix; made (or why not).
     ToOmnix(PathBuf, String),
     Made(String, Result<PathBuf, String>),
+    /// A part's name clicked: renamed there (typed, kept with Enter).
+    Rename(PathBuf, String),
+    Typed(String),
+    RenameSave,
+    /// A part taken away; its clips stay in the trip.
+    Remove(PathBuf, String),
 }
 
 /// The filter's choice: every clip, or a part's.
@@ -73,6 +82,23 @@ impl App {
                 self.making_edits.insert((root.clone(), Some(format!("part {part}"))));
                 return Task::perform(blocking(move || omnix::from_sheet::write_part(&root, &part).map_err(|e| format!("{e:#}"))), move |made| Message::Part(PartMsg::Made(name.clone(), made)));
             }
+            PartMsg::Rename(root, part) => {
+                self.part_naming = Some((root, part.clone(), part));
+                return iced::widget::operation::focus(PART_NAME);
+            }
+            PartMsg::Typed(t) => {
+                if let Some((_, _, typed)) = &mut self.part_naming {
+                    *typed = t;
+                }
+            }
+            PartMsg::RenameSave => {
+                if let Some((root, part, name)) = self.part_naming.take()
+                    && name.trim() != part
+                {
+                    self.part_op(&root, PartOp::Rename { part, name });
+                }
+            }
+            PartMsg::Remove(root, part) => self.part_op(&root, PartOp::Remove { part }),
             PartMsg::Made(part, made) => {
                 self.making_edits.retain(|(_, d)| d.as_deref() != Some(format!("part {part}").as_str()));
                 match made.and_then(|edit| crate::editor::open(&edit).map(|()| edit)) {
@@ -83,6 +109,21 @@ impl App {
             }
         }
         Task::none()
+    }
+
+    /// `op` applied to the parts of the trip at `root` (open in the sheet
+    /// or not); the trips read again.
+    fn part_op(&mut self, root: &std::path::Path, op: PartOp) {
+        let store = dailix_sheet::Store::new(dailix_sheet::Layout::new(root).sheet());
+        match store.apply(&[Op::Part(op)]).map_err(|e| e.to_string()).and_then(|(doc, _)| doc.sheet().map_err(|e| e.to_string())) {
+            Ok(sheet) => {
+                if let Some(p) = self.project.as_mut().filter(|p| p.footage.layout.root == root) {
+                    p.sheet = sheet;
+                }
+            }
+            Err(e) => self.error = Some(e),
+        }
+        self.refresh_home();
     }
 
     /// The trip page's parts: a row each.
@@ -101,7 +142,12 @@ impl App {
             let facts = text(format!("{} · {}", crate::library::count(p.clips.len(), "clip"), when)).size(12).style(text::secondary);
             let open = tip(ui::small("Sheet", ui::Kind::Secondary).on_press_maybe((!p.clips.is_empty()).then(|| Message::Part(PartMsg::Open(trip.root.clone(), p.name.clone())))), text("The contact sheet showing this part's clips only"), tooltip::Position::Bottom);
             let go = tip(ui::small("→ Omnix", ui::Kind::Secondary).on_press_maybe((!p.clips.is_empty()).then(|| Message::Part(PartMsg::ToOmnix(trip.root.clone(), p.name.clone())))), text("An edit of this part's clips, from any day (junk left out), opened in Omnix"), tooltip::Position::Bottom);
-            col = col.push(row![text(p.name.clone()).size(14).width(220), facts, space().width(Length::Fill), open, go].spacing(10).align_y(Alignment::Center).width(Length::Fixed(860.0)));
+            let name: Element<'a, Message> = match &self.part_naming {
+                Some((root, part, typed)) if *root == trip.root && *part == p.name => text_input("the part's name", typed).id(PART_NAME).size(14).width(220).on_input(|t| Message::Part(PartMsg::Typed(t))).on_submit(Message::Part(PartMsg::RenameSave)).into(),
+                _ => tip(button(text(p.name.clone()).size(14)).padding(0).style(button::text).on_press(Message::Part(PartMsg::Rename(trip.root.clone(), p.name.clone()))).width(220), text("Rename the part"), tooltip::Position::Bottom),
+            };
+            let remove = tip(ui::small("✕", ui::Kind::Quiet).on_press(Message::Part(PartMsg::Remove(trip.root.clone(), p.name.clone()))), text("Take the part away: its clips stay in the trip"), tooltip::Position::Bottom);
+            col = col.push(row![name, facts, space().width(Length::Fill), open, go, remove].spacing(10).align_y(Alignment::Center).width(Length::Fixed(880.0)));
         }
         col.into()
     }

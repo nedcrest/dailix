@@ -163,6 +163,9 @@ struct App {
     tmp_new: usize,
     /// The contact sheet's part filter: one part's clips only (gap 117).
     part: Option<String>,
+    /// A part being renamed on its trip's page: the trip, its name, the
+    /// name typed.
+    part_naming: Option<(PathBuf, String, String)>,
 }
 
 #[derive(Debug, Clone)]
@@ -386,7 +389,7 @@ impl App {
             Start::NewTrip => (None, true),
         };
         let settings = Settings::load();
-        let mut app = App { project: None, error: None, notice: None, making: HashSet::new(), voice_makes: HashSet::new(), drafts: HashMap::new(), dirty: HashSet::new(), selected: None, pane: pane::Pane::default(), height: 920.0, scale: settings.scale.unwrap_or(1.0), width: 1500.0, pane_share: settings.pane_share.unwrap_or(pane::SHARE), grip: None, help: false, settings_open: None, at_home: true, card_hover: None, edit_frames: Default::default(), trips: Vec::new(), places: Vec::new(), naming: None, choosing: None, deleting: None, trip_open: None, about: Default::default(), new_trip: None, menu: None, about_open: false, adding: HashSet::new(), change_error: None, close_anyway: false, filter: Default::default(), tile_hover: None, sorter: None, tmp_new: 0, part: None, folded: HashSet::new(), story_edits: 0, days_list: true, making_edits: HashSet::new(), settings };
+        let mut app = App { project: None, error: None, notice: None, making: HashSet::new(), voice_makes: HashSet::new(), drafts: HashMap::new(), dirty: HashSet::new(), selected: None, pane: pane::Pane::default(), height: 920.0, scale: settings.scale.unwrap_or(1.0), width: 1500.0, pane_share: settings.pane_share.unwrap_or(pane::SHARE), grip: None, help: false, settings_open: None, at_home: true, card_hover: None, edit_frames: Default::default(), trips: Vec::new(), places: Vec::new(), naming: None, choosing: None, deleting: None, trip_open: None, about: Default::default(), new_trip: None, menu: None, about_open: false, adding: HashSet::new(), change_error: None, close_anyway: false, filter: Default::default(), tile_hover: None, sorter: None, tmp_new: 0, part: None, part_naming: None, folded: HashSet::new(), story_edits: 0, days_list: true, making_edits: HashSet::new(), settings };
         // A project named opens; else where the window was left (home on
         // the first run, or when it was left there).
         app.refresh_home();
@@ -749,8 +752,8 @@ impl App {
             self.settings_open = Some(settings_window::Group::Places);
             return Task::none();
         }
-        if self.naming.is_some() && matches!(key.as_ref(), Key::Named(Named::Escape)) {
-            self.naming = None;
+        if (self.naming.is_some() || self.part_naming.is_some()) && matches!(key.as_ref(), Key::Named(Named::Escape)) {
+            (self.naming, self.part_naming) = (None, None);
             return Task::none();
         }
         if self.pane.pending.is_some() {
