@@ -116,6 +116,11 @@ pub fn trip(root: &Path) -> Result<Trip, String> {
 }
 
 /// `n` of `one` in words: «1 clip», «2 clips», «0 clips».
+/// The parts of the trip at `root` (none when its marking can't be read).
+pub fn parts(root: &std::path::Path) -> Vec<dailix_sheet::Part> {
+    dailix_sheet::Store::new(dailix_sheet::Layout::new(root).sheet()).read().ok().and_then(|d| d.sheet().ok()).map(|s| s.parts).unwrap_or_default()
+}
+
 pub fn count(n: usize, one: &str) -> String {
     if n == 1 { format!("1 {one}") } else { format!("{n} {one}s") }
 }

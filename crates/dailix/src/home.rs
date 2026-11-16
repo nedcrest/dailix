@@ -144,6 +144,7 @@ impl App {
             m @ (Message::Name(_) | Message::NameEdit(_) | Message::NameSave) => return self.on_name(m),
             Message::Home => {
                 let _ = self.save_typed();
+                self.sorter = None;
                 self.tile_hover = None;
                 self.notice = None;
                 self.pane = pane::Pane::default();
@@ -158,6 +159,7 @@ impl App {
                 self.refresh_home();
             }
             Message::OpenTrip(root) => {
+                self.sorter = None;
                 self.open_trip(root);
                 self.settings.last_trip = self.trip_open.clone();
                 let _ = self.settings.save();
@@ -427,6 +429,9 @@ impl App {
     /// Reads the trips and the places again.
     pub(super) fn refresh_home(&mut self) {
         let (trips, skipped) = self.settings.projects.as_deref().map(library::trips).unwrap_or_default();
+        // TMP's new videos counted by their places only (no ffprobe): the
+        // button that opens the sorter says it.
+        self.tmp_new = self.settings.tmp.as_deref().filter(|d| d.is_dir()).map_or(0, |t| crate::tmp::new_count(&crate::tmp::Ledger::load(t), crate::tmp::videos(t).iter().map(|p| crate::tmp::rel(t, p)).collect::<Vec<_>>().iter().map(String::as_str)));
         self.trips = trips;
         self.places = library::places(&self.settings);
         if let Some(first) = skipped.first() {
@@ -459,7 +464,13 @@ impl App {
                 // step 8).
                 let place = self.places.iter().any(|p| p.kind == crate::settings::PlaceKind::Projects && p.online);
                 let new = place.then(|| super::tip(ui::act("+ New trip", ui::Kind::Primary).on_press(Message::NewTrip), text("A new trip in the Trips folder, in the fixed layout (Ctrl+N)"), tooltip::Position::Bottom));
-                let head = row![text("Trips").size(22), space().width(Length::Fill)].push(new).align_y(Alignment::Center);
+                let tmp = self.places.iter().any(|p| p.kind == crate::settings::PlaceKind::Tmp && p.online).then(|| {
+                    let label = if self.tmp_new == 0 { "TMP".to_owned() } else { format!("TMP · {} new", self.tmp_new) };
+                    let kind = if self.tmp_new == 0 { ui::Kind::Secondary } else { ui::Kind::Primary };
+                    super::tip(ui::act(label, kind).on_press(Message::Sort(super::sorter::SortMsg::Open)), text("Sort what landed in TMP into trips, by day, and into their parts"), tooltip::Position::Bottom)
+                });
+                let new = new.map(|n| if self.tmp_new > 0 { super::tip(ui::act("+ New trip", ui::Kind::Secondary).on_press(Message::NewTrip), text("A new trip in the Trips folder, in the fixed layout (Ctrl+N)"), tooltip::Position::Bottom) } else { n });
+                let head = row![text("Trips").size(22), space().width(Length::Fill)].push(tmp).push(new).spacing(8).align_y(Alignment::Center);
                 let cards = iced::widget::row(self.trips.iter().map(|t| self.trip_card_with_menu(t))).spacing(14).wrap().vertical_spacing(14);
                 page = page.push((!welcome).then_some(head)).push(cards);
             }

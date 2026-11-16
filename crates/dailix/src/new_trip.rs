@@ -15,6 +15,9 @@ pub struct Draft {
     pub folder: String,
     /// The folder typed over: no longer follows the name.
     pub folder_typed: bool,
+    /// The month its folder starts with (`2026-08`): when the videos
+    /// picked in the TMP sorter were filmed, else this one.
+    pub month: String,
     pub description: String,
     pub tags: String,
 }
@@ -32,14 +35,15 @@ impl App {
     pub(super) fn on_new_trip(&mut self, message: Message) -> Task<Message> {
         match message {
             Message::NewTrip => {
-                self.new_trip = Some(Draft { folder: dailix_sheet::project::trip_folder(&this_month(), ""), ..Draft::default() });
+                let month = self.sorter.as_ref().and_then(|s| crate::tmp::month_of(s.picked.iter().filter_map(|i| s.raws.get(*i)?.day.as_deref()))).unwrap_or_else(this_month);
+                self.new_trip = Some(Draft { folder: dailix_sheet::project::trip_folder(&month, ""), month, ..Draft::default() });
                 return iced::widget::operation::focus(TITLE);
             }
             Message::NewTripCancel => self.new_trip = None,
             Message::NewTripTitle(t) => {
                 if let Some(d) = &mut self.new_trip {
                     if !d.folder_typed {
-                        d.folder = dailix_sheet::project::trip_folder(&this_month(), &t);
+                        d.folder = dailix_sheet::project::trip_folder(&d.month, &t);
                     }
                     d.title = t;
                 }
@@ -67,6 +71,12 @@ impl App {
                 }
                 let about = dailix_sheet::project::About { description: d.description.trim().to_owned(), tags: dailix_sheet::project::parse_tags(&d.tags) };
                 match dailix_sheet::project::new_trip(&place, d.folder.trim(), d.title.trim(), &about) {
+                    // From the TMP sorter: chosen there, the sorter kept.
+                    Ok(root) if self.sorter.is_some() => {
+                        self.new_trip = None;
+                        self.refresh_home();
+                        return self.update(Message::Sort(super::sorter::SortMsg::Trip(super::sorter::TripChoice { title: dailix_sheet::project::title(&root), root })));
+                    }
                     Ok(root) => {
                         self.new_trip = None;
                         self.at_home = true;

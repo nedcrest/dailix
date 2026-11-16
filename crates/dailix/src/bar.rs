@@ -19,6 +19,8 @@ pub enum Place {
     Trip(PathBuf),
     /// A trip's contact sheet, at a day when a clip of it is picked.
     Sheet(PathBuf, Option<String>),
+    /// The TMP sorter (gap 117).
+    Tmp,
 }
 
 /// One step back from `place`: the sheet to its trip, a trip to the
@@ -26,7 +28,7 @@ pub enum Place {
 pub fn back_from(place: &Place) -> Option<Place> {
     match place {
         Place::Trips => None,
-        Place::Trip(_) => Some(Place::Trips),
+        Place::Trip(_) | Place::Tmp => Some(Place::Trips),
         Place::Sheet(root, _) => Some(Place::Trip(root.clone())),
     }
 }
@@ -54,6 +56,7 @@ pub fn busy_line(posters: usize, adding: usize, edits: usize, voices: usize) -> 
 pub fn title(place: &Place) -> String {
     match place {
         Place::Trips => "Dailix".to_owned(),
+        Place::Tmp => "TMP — Dailix".to_owned(),
         Place::Trip(root) | Place::Sheet(root, _) => format!("{} — Dailix", dailix_sheet::project::title(root)),
     }
 }
@@ -65,6 +68,7 @@ impl App {
                 let day = self.selected.as_ref().and_then(|k| p.footage.days.iter().find(|d| d.clips.iter().any(|c| &c.key == k))).map(|d| d.day.clone());
                 Place::Sheet(p.footage.layout.root.clone(), day)
             }
+            (_, true, _) if self.sorter.is_some() => Place::Tmp,
             (_, true, Some(root)) => Place::Trip(root.clone()),
             _ => Place::Trips,
         }
@@ -94,6 +98,7 @@ impl App {
         let here = |s: String| container(text(s).size(18)).padding([0, 4]);
         path = match &place {
             Place::Trips => path.push(here("Dailix".to_owned())),
+            Place::Tmp => path.push(link("Trips".into(), Message::Home)).push(sep()).push(here("TMP: sort into trips".to_owned())),
             Place::Trip(root) => path.push(link("Trips".into(), Message::Home)).push(sep()).push(here(dailix_sheet::project::title(root))),
             Place::Sheet(root, day) => path
                 .push(link("Trips".into(), Message::Home))

@@ -20,6 +20,8 @@ mod sheet_view;
 mod settings_window;
 #[path = "new_trip.rs"]
 mod new_trip;
+#[path = "sorter.rs"]
+mod sorter;
 
 use crate::ui;
 use dailix_sheet::footage::{self, Footage};
@@ -153,6 +155,10 @@ struct App {
     /// Which tiles the sheet shows; the tile under the pointer.
     filter: sheet_view::Filter,
     tile_hover: Option<String>,
+    /// The TMP sorter, while it's open (gap 117); how many of TMP's
+    /// videos are new, as the home view last counted.
+    sorter: Option<sorter::Sorter>,
+    tmp_new: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -281,6 +287,8 @@ enum Message {
     /// The sheet's filter chosen; the pointer onto (true) or off a tile.
     Filter(sheet_view::Filter),
     TileHover(String, bool),
+    /// The TMP sorter's (gap 117).
+    Sort(sorter::SortMsg),
 }
 
 /// The tiles' list: its id, for scrolling it.
@@ -368,7 +376,7 @@ impl App {
             Start::NewTrip => (None, true),
         };
         let settings = Settings::load();
-        let mut app = App { project: None, error: None, notice: None, making: HashSet::new(), voice_makes: HashSet::new(), drafts: HashMap::new(), dirty: HashSet::new(), selected: None, pane: pane::Pane::default(), height: 920.0, scale: settings.scale.unwrap_or(1.0), width: 1500.0, pane_share: settings.pane_share.unwrap_or(pane::SHARE), grip: None, help: false, settings_open: None, at_home: true, card_hover: None, edit_frames: Default::default(), trips: Vec::new(), places: Vec::new(), naming: None, choosing: None, deleting: None, trip_open: None, about: Default::default(), new_trip: None, menu: None, about_open: false, adding: HashSet::new(), change_error: None, close_anyway: false, filter: Default::default(), tile_hover: None, folded: HashSet::new(), story_edits: 0, days_list: true, making_edits: HashSet::new(), settings };
+        let mut app = App { project: None, error: None, notice: None, making: HashSet::new(), voice_makes: HashSet::new(), drafts: HashMap::new(), dirty: HashSet::new(), selected: None, pane: pane::Pane::default(), height: 920.0, scale: settings.scale.unwrap_or(1.0), width: 1500.0, pane_share: settings.pane_share.unwrap_or(pane::SHARE), grip: None, help: false, settings_open: None, at_home: true, card_hover: None, edit_frames: Default::default(), trips: Vec::new(), places: Vec::new(), naming: None, choosing: None, deleting: None, trip_open: None, about: Default::default(), new_trip: None, menu: None, about_open: false, adding: HashSet::new(), change_error: None, close_anyway: false, filter: Default::default(), tile_hover: None, sorter: None, tmp_new: 0, folded: HashSet::new(), story_edits: 0, days_list: true, making_edits: HashSet::new(), settings };
         // A project named opens; else where the window was left (home on
         // the first run, or when it was left there).
         app.refresh_home();
@@ -523,6 +531,18 @@ impl App {
         let size = iced::Subscription::batch([size, iced::window::close_requests().map(Message::Closing)]);
         // A hovered card's tiles change, a screen frame at a time.
         let size = if self.card_moving() { iced::Subscription::batch([size, iced::window::frames().map(|_| Message::CardTick)]) } else { size };
+        // The sorter's: Shift and Ctrl for a click, its player's frames.
+        let keys = match &self.sorter {
+            Some(s) => {
+                let mods = iced::event::listen_with(|e, _, _| match e {
+                    iced::Event::Keyboard(iced::keyboard::Event::ModifiersChanged(m)) => Some(Message::Sort(sorter::SortMsg::Mods(m))),
+                    _ => None,
+                });
+                let frames = s.viewer.as_ref().is_some_and(omnix::viewer::Viewer::busy).then(|| iced::window::frames().map(|_| Message::Sort(sorter::SortMsg::Tick)));
+                iced::Subscription::batch([keys, mods].into_iter().chain(frames))
+            }
+            None => keys,
+        };
         // The player's frames, every screen frame while it plays or seeks.
         if self.pane_busy() {
             iced::Subscription::batch([keys, size, iced::window::frames().map(|_| Message::Pane(pane::PaneMsg::Tick))])
@@ -608,6 +628,7 @@ impl App {
         match message {
             Message::Select(key) => return self.select(key),
             Message::Pane(msg) => return self.on_pane(msg),
+            Message::Sort(msg) => return self.on_sort(msg),
             Message::Resized(s) => {
                 self.height = s.height;
                 self.width = s.width;
@@ -734,9 +755,23 @@ impl App {
         if mods.alt() && matches!(key.as_ref(), Key::Named(Named::ArrowLeft)) {
             return self.back();
         }
+        if self.sorter.is_some() && self.at_home {
+            if matches!(key.as_ref(), Key::Named(Named::Escape)) {
+                return self.back();
+            }
+            return self.sort_key(&key, mods).unwrap_or_else(Task::none);
+        }
         if mods.command() || mods.alt() || self.at_home {
             return Task::none();
         }
+        self.sheet_key(key, physical, mods)
+    }
+
+    /// The contact sheet's keys: the player's (Tab gives them to it), the
+    /// ratings, ← → between tiles.
+    fn sheet_key(&mut self, key: iced::keyboard::Key, physical: iced::keyboard::key::Physical, mods: iced::keyboard::Modifiers) -> Task<Message> {
+        use iced::keyboard::key::{Code, Named, Physical};
+        use iced::keyboard::Key;
         // Tab: the keys go to the player, or back to the tiles.
         if matches!(key.as_ref(), Key::Named(Named::Tab)) && self.pane.key.is_some() {
             self.pane.focused = !self.pane.focused;
@@ -833,6 +868,9 @@ impl App {
         }
         if let Some(n) = &self.notice {
             page = page.push(line(n.clone(), text::secondary, Message::DismissNotice));
+        }
+        if self.at_home && self.sorter.is_some() {
+            return page.push(self.sorter_page()).into();
         }
         if self.at_home {
             return page.push(self.home()).into();

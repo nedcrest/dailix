@@ -115,6 +115,19 @@ pub fn scan(tmp: &Path) -> Vec<Raw> {
         .collect()
 }
 
+/// Where the poster of TMP's video `rel` is kept: in TMP's own
+/// `.dailix/posters`, a name per place (`card/DJI_0001.MP4` →
+/// `card__DJI_0001.MP4.jpg`), never beside the videos.
+pub fn poster(tmp: &Path, rel: &str) -> PathBuf {
+    tmp.join(".dailix").join("posters").join(format!("{}.jpg", rel.replace('/', "__")))
+}
+
+/// The month of the first of `days` (`2026-08`): a new trip for them is
+/// named by when they were filmed, not by when they're sorted.
+pub fn month_of<'a>(days: impl IntoIterator<Item = &'a str>) -> Option<String> {
+    days.into_iter().filter(|d| dailix_sheet::footage::is_day(d)).min().map(|d| d[..7].to_owned())
+}
+
 /// TMP's videos by day, the days in order and those with none last; each
 /// day's by its place in TMP. Indices into `raws`.
 pub fn by_day(raws: &[Raw]) -> Vec<(Option<String>, Vec<usize>)> {
@@ -133,6 +146,37 @@ pub fn by_day(raws: &[Raw]) -> Vec<(Option<String>, Vec<usize>)> {
 /// How many of `rels` the ledger has no place for: what's new in TMP.
 pub fn new_count<'a>(ledger: &Ledger, rels: impl IntoIterator<Item = &'a str>) -> usize {
     rels.into_iter().filter(|r| ledger.filed(r).is_empty()).count()
+}
+
+/// The sorter's tiles picked after a click on `at` (`order`: the tiles as
+/// shown): alone, it alone; with Ctrl, it added or taken away; with Shift,
+/// every tile from the last one clicked (`anchor`) to it. The picked in
+/// the order shown, and the new anchor.
+pub fn click(picked: &[usize], anchor: Option<usize>, at: usize, order: &[usize], shift: bool, ctrl: bool) -> (Vec<usize>, Option<usize>) {
+    let place = |i: usize| order.iter().position(|o| *o == i);
+    let in_order = |set: Vec<usize>| order.iter().copied().filter(|o| set.contains(o)).collect::<Vec<_>>();
+    match (shift, anchor.and_then(place), place(at)) {
+        (true, Some(a), Some(b)) => {
+            let (lo, hi) = (a.min(b), a.max(b));
+            let mut set = if ctrl { picked.to_vec() } else { Vec::new() };
+            set.extend(&order[lo..=hi]);
+            (in_order(set), anchor)
+        }
+        _ if ctrl => {
+            let set = if picked.contains(&at) { picked.iter().copied().filter(|p| *p != at).collect() } else { [picked, &[at]].concat() };
+            (in_order(set), Some(at))
+        }
+        _ => (vec![at], Some(at)),
+    }
+}
+
+/// The tile `by` places from `from` in `order` (the first with none),
+/// kept within it.
+pub fn step(order: &[usize], from: Option<usize>, by: isize) -> Option<usize> {
+    let last = order.len().checked_sub(1)?;
+    let at = from.and_then(|f| order.iter().position(|o| *o == f));
+    let next = at.map_or(0, |a| a.saturating_add_signed(by).min(last));
+    order.get(next).copied()
 }
 
 /// The clip a filed video is in its trip (`<day>/<name>`), once it's
@@ -269,6 +313,33 @@ mod tests {
         let found: Vec<String> = videos(&dir).iter().map(|p| rel(&dir, p)).collect();
         assert_eq!(found, ["card/DJI_0001.MP4", "phone/a.mp4"]);
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_click_picks_one_ctrl_adds_shift_takes_the_run() {
+        let order = [4, 2, 0, 1, 3];
+        assert_eq!(click(&[], None, 0, &order, false, false), (vec![0], Some(0)));
+        // Shift from 2 to 1: the run as shown, whichever way.
+        assert_eq!(click(&[2], Some(2), 1, &order, true, false), (vec![2, 0, 1], Some(2)));
+        assert_eq!(click(&[1], Some(1), 4, &order, true, false), (vec![4, 2, 0, 1], Some(1)));
+        // Ctrl adds and takes away, in the order shown.
+        assert_eq!(click(&[3], Some(3), 4, &order, false, true), (vec![4, 3], Some(4)));
+        assert_eq!(click(&[4, 3], Some(4), 4, &order, false, true), (vec![3], Some(4)));
+        // Shift with no anchor: just the one.
+        assert_eq!(click(&[], None, 3, &order, true, false), (vec![3], Some(3)));
+    }
+
+    #[test]
+    fn the_arrows_step_through_the_tiles_and_stop_at_the_ends() {
+        let order = [4, 2, 0];
+        assert_eq!((step(&order, None, 1), step(&order, Some(2), 1), step(&order, Some(0), 1), step(&order, Some(4), -1)), (Some(4), Some(0), Some(0), Some(4)));
+        assert_eq!(step(&[], None, 1), None);
+    }
+
+    #[test]
+    fn a_new_trip_is_named_by_the_month_its_videos_were_filmed() {
+        assert_eq!(month_of(["2026-09-01", "2026-08-30", "soon"]).as_deref(), Some("2026-08"));
+        assert_eq!(month_of([]), None);
     }
 
     #[test]
