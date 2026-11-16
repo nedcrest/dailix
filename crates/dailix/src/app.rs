@@ -552,7 +552,15 @@ impl App {
                     _ => None,
                 });
                 let frames = s.viewer.as_ref().is_some_and(omnix::viewer::Viewer::busy).then(|| iced::window::frames().map(|_| Message::Sort(sorter::SortMsg::Tick)));
-                iced::Subscription::batch([keys, mods].into_iter().chain(frames))
+                // The pointer, only while the edge under the player is held.
+                let grip = s.grip.is_some().then(|| {
+                    iced::event::listen_with(|e, _, _| match e {
+                        iced::Event::Mouse(iced::mouse::Event::CursorMoved { position }) => Some(Message::Sort(sorter::SortMsg::Drag(position))),
+                        iced::Event::Mouse(iced::mouse::Event::ButtonReleased(iced::mouse::Button::Left)) => Some(Message::Sort(sorter::SortMsg::Release)),
+                        _ => None,
+                    })
+                });
+                iced::Subscription::batch([keys, mods].into_iter().chain(frames).chain(grip))
             }
             None => keys,
         };

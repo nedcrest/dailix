@@ -35,8 +35,11 @@ pub fn back_from(place: &Place) -> Option<Place> {
 
 /// The jobs under way, said in a line (the UI review, step 9): adding
 /// videos, making edits, voices, posters; empty with none.
-pub fn busy_line(posters: usize, adding: usize, edits: usize, voices: usize) -> String {
+pub fn busy_line(posters: usize, adding: usize, edits: usize, voices: usize, filing: Option<(usize, usize)>) -> String {
     let mut said = Vec::new();
+    if let Some((done, total)) = filing {
+        said.push(format!("filing {} of {total}", done + 1));
+    }
     if adding > 0 {
         said.push(if adding == 1 { "adding videos".to_owned() } else { format!("adding videos to {adding} trips") });
     }
@@ -108,7 +111,8 @@ impl App {
                 .push(here(day.as_ref().map_or_else(|| "Contact sheet".to_owned(), |d| format!("Contact sheet · {d}")))),
         };
         let mut bar = row![path, space().width(Length::Fill)].spacing(12).align_y(Alignment::Center);
-        let busy = busy_line(self.making.len(), self.adding.len(), self.making_edits.len(), self.voice_makes.len());
+        let filing = self.sorter.as_ref().and_then(|s| s.filing.as_ref()).map(|f| (f.done, f.total));
+        let busy = busy_line(self.making.len(), self.adding.len(), self.making_edits.len(), self.voice_makes.len(), filing);
         if !busy.is_empty() {
             bar = bar.push(text(format!("⟳ {busy}")).size(13).style(text::secondary));
         }
@@ -147,9 +151,9 @@ mod tests {
 
     #[test]
     fn the_jobs_under_way_are_said_in_a_line() {
-        assert_eq!(busy_line(0, 0, 0, 0), "");
-        assert_eq!(busy_line(12, 1, 1, 0), "adding videos · making an edit · posters: 12 left");
-        assert_eq!(busy_line(0, 2, 0, 1), "adding videos to 2 trips · cleaning 1 voice");
+        assert_eq!(busy_line(0, 0, 0, 0, None), "");
+        assert_eq!(busy_line(12, 1, 1, 0, None), "adding videos · making an edit · posters: 12 left");
+        assert_eq!(busy_line(0, 2, 0, 1, Some((2, 7))), "filing 3 of 7 · adding videos to 2 trips · cleaning 1 voice");
     }
 
     #[test]

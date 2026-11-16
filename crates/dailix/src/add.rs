@@ -169,7 +169,7 @@ fn add_one(layout: &Layout, pick: &Pick, day: Option<&str>) -> Said {
         Err(e) => return failed(None, pick.file.display().to_string(), e.to_string()),
     };
     let Some(on) = day.map(str::to_owned).or_else(|| day_of(&name, source.created_at.as_deref())) else {
-        return failed(None, pick.file.display().to_string(), "no date in its name or in it; give the day (--day)".into());
+        return failed(None, pick.file.display().to_string(), "no date in its name or in it: give it a day".into());
     };
     let target = target_name(pick);
     let said = |what| Said { day: Some(on.clone()), name: target.clone(), what };

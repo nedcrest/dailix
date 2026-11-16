@@ -128,6 +128,22 @@ pub fn month_of<'a>(days: impl IntoIterator<Item = &'a str>) -> Option<String> {
     days.into_iter().filter(|d| dailix_sheet::footage::is_day(d)).min().map(|d| d[..7].to_owned())
 }
 
+/// What filing says while it copies: how far, into what, which file.
+pub fn filing_line(done: usize, total: usize, trip: &str, now: &str) -> String {
+    format!("Copying {} of {total} into {trip}: {now}", done + 1)
+}
+
+/// What a filed video's tile says: the trip, and the trip's parts it's in.
+pub fn went_line(trip: &str, parts: &[&str]) -> String {
+    if parts.is_empty() { format!("✓ {trip}") } else { format!("✓ {trip} · {}", parts.join(", ")) }
+}
+
+/// The player's share of the sorter's height, kept where both it and the
+/// tiles stay usable.
+pub fn player_share(share: f32) -> f32 {
+    share.clamp(0.15, 0.75)
+}
+
 /// TMP's videos by day, the days in order and those with none last; each
 /// day's by its place in TMP. Indices into `raws`.
 pub fn by_day(raws: &[Raw]) -> Vec<(Option<String>, Vec<usize>)> {
@@ -353,6 +369,13 @@ mod tests {
     fn a_new_trip_is_named_by_the_month_its_videos_were_filmed() {
         assert_eq!(month_of(["2026-09-01", "2026-08-30", "soon"]).as_deref(), Some("2026-08"));
         assert_eq!(month_of([]), None);
+    }
+
+    #[test]
+    fn the_sorter_says_how_far_filing_is_and_where_a_tile_went() {
+        assert_eq!(filing_line(2, 7, "Kos", "DJI_0001.MP4"), "Copying 3 of 7 into Kos: DJI_0001.MP4");
+        assert_eq!((went_line("Kos", &[]), went_line("Kos", &["Rides", "Beach"])), ("✓ Kos".to_owned(), "✓ Kos · Rides, Beach".to_owned()));
+        assert_eq!((player_share(0.05), player_share(0.4), player_share(0.9)), (0.15, 0.4, 0.75));
     }
 
     #[test]

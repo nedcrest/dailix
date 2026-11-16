@@ -67,6 +67,9 @@ pub struct Settings {
     pub scale: Option<f32>,
     /// The player pane's share of the window's width, as dragged.
     pub pane_share: Option<f32>,
+    /// The TMP sorter's player: its share of the window's height, as
+    /// dragged.
+    pub sorter_player: Option<f32>,
     /// Whether a hovered card's tiles change by themselves (Omnix's project
     /// cards, gap 110); none: they do.
     pub card_motion: Option<bool>,
@@ -144,7 +147,7 @@ mod tests {
 
     #[test]
     fn settings_read_back_and_old_files_still_open() {
-        let s = Settings { tmp: Some("/t".into()), projects: Some("/p".into()), sources: Some(Sources::Folder { path: "/s".into() }), last: None, last_clip: None, last_trip: None, scale: None, pane_share: None, card_motion: Some(false) };
+        let s = Settings { tmp: Some("/t".into()), projects: Some("/p".into()), sources: Some(Sources::Folder { path: "/s".into() }), last: None, last_clip: None, last_trip: None, scale: None, pane_share: None, sorter_player: None, card_motion: Some(false) };
         let text = serde_json::to_string(&s).unwrap();
         assert!(text.contains(r#""sources":{"kind":"folder","path":"/s"}"#), "{text}");
         assert_eq!(serde_json::from_str::<Settings>(&text).unwrap(), s);

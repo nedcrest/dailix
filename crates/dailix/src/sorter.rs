@@ -49,7 +49,12 @@ pub struct Sorter {
     pub shown: Option<usize>,
     pub viewer: Option<Viewer>,
     pub showing: Option<PathBuf>,
-    pub filing: bool,
+    /// The picked being filed, one at a time (each said as it goes).
+    pub filing: Option<Filing>,
+    /// The player's share of the height; the edge under it being dragged
+    /// (where the pointer was first seen, and the share then).
+    pub share: f32,
+    pub grip: Option<Option<(f32, f32)>>,
     /// Shift and Ctrl as they are now, for a click on a tile.
     pub mods: iced::keyboard::Modifiers,
 }
@@ -67,12 +72,32 @@ pub enum SortMsg {
     AddPart,
     Day(String),
     File,
-    Filed(PathBuf, Result<Vec<crate::add::Said>, String>),
+    /// One file filed (what it said, or why not); the next started.
+    FiledOne(Result<Vec<crate::add::Said>, String>),
+    /// The edge between the player and the tiles: pressed, the pointer
+    /// moved (in the window), let go.
+    Grip,
+    Drag(iced::Point),
+    Release,
     Loaded(PathBuf, Slot),
     Toggle,
     Scrub(f64),
     ScrubDone,
     Tick,
+}
+
+/// Filing under way: into which trip and parts, what's left (each file
+/// and the day it's given), how many there were and are done, what each
+/// said, the last of the picked (the next new one after it is picked).
+#[derive(Debug, Clone)]
+pub struct Filing {
+    pub root: PathBuf,
+    pub parts: Vec<String>,
+    pub queue: std::collections::VecDeque<(PathBuf, Option<String>)>,
+    pub total: usize,
+    pub done: usize,
+    pub said: Vec<crate::add::Said>,
+    pub last: Option<usize>,
 }
 
 /// A trip as the list offers it: its title, its folder.
@@ -119,7 +144,8 @@ impl App {
             }
             m @ (SortMsg::Trip(_) | SortMsg::Part(..) | SortMsg::NewPart(_) | SortMsg::AddPart | SortMsg::Day(_)) => self.sort_choice(m),
             SortMsg::File => return self.file_picked(),
-            SortMsg::Filed(root, said) => return self.filed(root, said),
+            SortMsg::FiledOne(said) => return self.filed_one(said),
+            m @ (SortMsg::Grip | SortMsg::Drag(_) | SortMsg::Release) => self.sort_grip(m),
             m => self.sort_player(m),
         }
         Task::none()
@@ -135,7 +161,8 @@ impl App {
         self.at_home = true;
         self.trip_open = None;
         let trip = self.sorter.as_ref().and_then(|s| s.trip.clone());
-        self.sorter = Some(Sorter { scanning: true, ledger: tmp::Ledger::load(&place), trip, ..Default::default() });
+        let share = tmp::player_share(self.settings.sorter_player.unwrap_or(0.32));
+        self.sorter = Some(Sorter { scanning: true, ledger: tmp::Ledger::load(&place), trip, share, ..Default::default() });
         Task::perform(blocking(move || tmp::scan(&place)), |raws| Message::Sort(SortMsg::Scanned(raws)))
     }
 
@@ -215,56 +242,94 @@ impl App {
         }
     }
 
-    /// The picked filed into the trip, off the window's thread.
+    /// The picked filed into the trip: queued, a file at a time off the
+    /// window's thread, so the line under the bar says how far it is.
     fn file_picked(&mut self) -> Task<Message> {
-        let (Some(place), Some(s)) = (self.tmp_place(), &mut self.sorter) else { return Task::none() };
-        let Some(root) = s.trip.clone().filter(|_| !s.picked.is_empty() && !s.filing) else { return Task::none() };
+        let Some(s) = &mut self.sorter else { return Task::none() };
+        let Some(root) = s.trip.clone().filter(|_| !s.picked.is_empty() && s.filing.is_none()) else { return Task::none() };
         let day = s.day.trim().to_owned();
         if !day.is_empty() && !dailix_sheet::footage::is_day(&day) {
             self.error = Some(format!("«{day}» isn't a day: give it as YYYY-MM-DD."));
             return Task::none();
         }
-        s.filing = true;
-        let files: Vec<PathBuf> = s.picked.iter().map(|i| s.raws[*i].path.clone()).collect();
+        // Enter files as the button does, and only when it would: a video
+        // with no date of its own waits for a day (Enter went past the
+        // button's check, filing it into nothing).
+        if day.is_empty() && s.picked.iter().any(|i| s.raws[*i].day.is_none()) {
+            self.error = Some("A picked video has no date: give it a day (YYYY-MM-DD) under Day first.".into());
+            return Task::none();
+        }
         // The day given goes to those with none of their own only.
-        let (dated, undated): (Vec<PathBuf>, Vec<PathBuf>) = files.into_iter().partition(|f| s.raws.iter().any(|r| &r.path == f && r.day.is_some()));
-        let parts = s.parts.clone();
-        let r = root.clone();
-        Task::perform(
-            blocking(move || {
-                let mut said = tmp::file(&place, &r, &dated, None, &parts).map_err(|e| e.to_string())?;
-                if !undated.is_empty() {
-                    said.extend(tmp::file(&place, &r, &undated, (!day.is_empty()).then_some(day.as_str()), &parts).map_err(|e| e.to_string())?);
-                }
-                Ok(said)
-            }),
-            move |said| Message::Sort(SortMsg::Filed(root.clone(), said)),
-        )
+        let queue = s.picked.iter().map(|i| (s.raws[*i].path.clone(), s.raws[*i].day.is_none().then(|| day.clone()).filter(|d| !d.is_empty()))).collect::<std::collections::VecDeque<_>>();
+        s.filing = Some(Filing { root, parts: s.parts.clone(), total: queue.len(), queue, done: 0, said: Vec::new(), last: s.picked.last().copied() });
+        self.file_next()
     }
 
-    /// What filing did, in a line; the ledger read again; on to the next
-    /// new tile.
-    fn filed(&mut self, root: PathBuf, said: Result<Vec<crate::add::Said>, String>) -> Task<Message> {
+    /// The next file of the queue filed, the line saying so; the end
+    /// when there's none.
+    fn file_next(&mut self) -> Task<Message> {
         let place = self.tmp_place();
-        let Some(s) = &mut self.sorter else { return Task::none() };
-        s.filing = false;
-        match said {
-            Ok(said) => {
-                let title = dailix_sheet::project::title(&root);
-                self.notice = Some(format!("{title}: {}", crate::add::summary(&said)));
-            }
-            Err(e) => self.error = Some(e),
-        }
+        let Some(f) = self.sorter.as_mut().and_then(|s| s.filing.as_mut()) else { return Task::none() };
+        let (Some(place), Some((file, day))) = (place, f.queue.pop_front()) else { return self.filed() };
+        let name = file.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+        self.notice = Some(tmp::filing_line(f.done, f.total, &dailix_sheet::project::title(&f.root), &name));
+        let (root, parts) = (f.root.clone(), f.parts.clone());
+        Task::perform(blocking(move || tmp::file(&place, &root, &[file], day.as_deref(), &parts).map_err(|e| e.to_string())), |said| Message::Sort(SortMsg::FiledOne(said)))
+    }
+
+    /// One file done: its line kept, the ledger read again (its tile says
+    /// where it went at once), the next one; an error stops the rest.
+    fn filed_one(&mut self, said: Result<Vec<crate::add::Said>, String>) -> Task<Message> {
+        let place = self.tmp_place();
+        let Some(s) = self.sorter.as_mut() else { return Task::none() };
         if let Some(p) = place {
             s.ledger = tmp::Ledger::load(&p);
         }
+        let Some(f) = s.filing.as_mut() else { return Task::none() };
+        f.done += 1;
+        match said {
+            Ok(said) => f.said.extend(said),
+            Err(e) => {
+                f.queue.clear();
+                self.error = Some(e);
+            }
+        }
+        self.refresh_home();
+        self.file_next()
+    }
+
+    /// Filing over: what it did, in a line; on to the next new tile.
+    fn filed(&mut self) -> Task<Message> {
+        let Some(s) = &mut self.sorter else { return Task::none() };
+        let Some(f) = s.filing.take() else { return Task::none() };
+        self.notice = Some(format!("{}: {}", dailix_sheet::project::title(&f.root), crate::add::summary(&f.said)));
         let order = s.order();
-        let last = s.picked.last().copied();
-        let next = order.iter().skip_while(|i| Some(**i) != last).skip(1).find(|i| s.ledger.filed(&s.raws[**i].rel).is_empty()).copied();
+        let next = order.iter().skip_while(|i| Some(**i) != f.last).skip(1).find(|i| s.ledger.filed(&s.raws[**i].rel).is_empty()).copied();
         s.picked = next.into_iter().collect();
         s.anchor = next;
         self.refresh_home();
         next.map_or_else(Task::none, |i| self.show_raw(i))
+    }
+
+    /// The edge under the player dragged: its share of the height follows
+    /// the pointer, kept when let go.
+    fn sort_grip(&mut self, msg: SortMsg) {
+        let room = (self.height / self.scale).max(1.0);
+        let Some(s) = &mut self.sorter else { return };
+        match msg {
+            SortMsg::Grip => s.grip = Some(None),
+            SortMsg::Drag(p) => {
+                let Some(grip) = &mut s.grip else { return };
+                let (y0, s0) = *grip.get_or_insert((p.y, s.share));
+                s.share = tmp::player_share(s0 + (p.y - y0) / room);
+            }
+            SortMsg::Release => {
+                s.grip = None;
+                self.settings.sorter_player = Some(s.share);
+                let _ = self.settings.save();
+            }
+            _ => {}
+        }
     }
 
     /// The player's own messages.
@@ -324,7 +389,9 @@ impl App {
             let place = self.tmp_place().map(|p| p.display().to_string()).unwrap_or_default();
             return container(column![text("TMP is empty").size(20), text(format!("Videos put into {place} show here, by the day they were filmed.")).size(14).style(text::secondary)].spacing(8).align_x(Alignment::Center)).center(Length::Fill).into();
         }
-        let left = column![self.sort_player_view(s), rule::horizontal(1), scrollable(self.sort_tiles(s)).id(TILES).height(Length::Fill).width(Length::Fill)].spacing(8);
+        // The edge between them: dragged, the player grows or shrinks.
+        let grip = iced::widget::mouse_area(container(rule::horizontal(2)).height(10).width(Length::Fill).center_y(10)).on_press(Message::Sort(SortMsg::Grip)).interaction(iced::mouse::Interaction::ResizingVertically);
+        let left = column![self.sort_player_view(s), grip, scrollable(self.sort_tiles(s)).id(TILES).height(Length::Fill).width(Length::Fill)].spacing(8);
         row![left.width(Length::Fill), rule::vertical(1), container(scrollable(self.sort_side(s))).width(SIDE).padding([0, 12])].spacing(8).padding([8, 16]).into()
     }
 
@@ -332,7 +399,7 @@ impl App {
         let to = |m: SortMsg| Message::Sort(m);
         let shown = s.shown.and_then(|i| s.raws.get(i));
         let name = shown.map_or_else(String::new, |r| r.rel.clone());
-        let tall = (self.height / self.scale) * 0.32;
+        let tall = (self.height / self.scale) * s.share;
         let Some(v) = &s.viewer else {
             return column![text(name).size(15), container(text(if s.showing.is_some() { "Opening…" } else { "" }).size(13).style(text::secondary)).height(tall).center_y(tall)].spacing(6).into();
         };
@@ -372,7 +439,7 @@ impl App {
         let picture: Element<'a, Message> = if poster.is_file() { image(image::Handle::from_path(poster)).width(TILE).height(h).into() } else { container(text("…").size(12)).width(TILE).height(h).center_x(TILE).center_y(h).style(container::rounded_box).into() };
         let filed = s.ledger.filed(&r.rel);
         let name = r.path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-        let went = filed.first().map_or_else(|| format!("{:.0} s · new", r.duration), |f| format!("✓ {}", dailix_sheet::project::title(&self.settings.projects.clone().unwrap_or_default().join(&f.trip))));
+        let went = filed.first().map_or_else(|| format!("{:.0} s · new", r.duration), |f| self.went(f));
         let info = column![text(crate::library::middle(&name, 26)).size(12), text(went).size(11).style(if filed.is_empty() { text::secondary } else { text::success })].spacing(2).width(TILE);
         let picked = s.picked.contains(&i);
         let tile = button(column![picture, info].spacing(4)).padding(4).on_press(Message::Sort(SortMsg::Click(i))).style(move |t, st| {
@@ -383,6 +450,17 @@ impl App {
             b
         });
         container(tip(tile, text(r.rel.clone()), tooltip::Position::Bottom)).id(tile_id(&r.rel)).into()
+    }
+
+    /// Where a filed video went, as its tile says it: the trip's name and
+    /// the trip's parts that hold it.
+    fn went(&self, f: &tmp::Filed) -> String {
+        let root = self.settings.projects.clone().unwrap_or_default().join(&f.trip);
+        let key = format!("{}/{}", f.day, f.name);
+        let trip = self.trips.iter().find(|t| t.root == root);
+        let title = trip.map_or_else(|| dailix_sheet::project::title(&root), |t| t.title.clone());
+        let parts: Vec<&str> = trip.map(|t| t.parts.iter().filter(|p| p.clips.contains(&key)).map(|p| p.name.as_str()).collect()).unwrap_or_default();
+        tmp::went_line(&title, &parts)
     }
 
     /// The panel: what the picked become.
@@ -403,7 +481,7 @@ impl App {
         if undated > 0 {
             day = day.push(text_input("YYYY-MM-DD, for those with no date", &s.day).size(13).on_input(|t| Message::Sort(SortMsg::Day(t))).on_submit(to(SortMsg::File)));
         }
-        let ready = chosen.is_some() && picked > 0 && !s.filing && (undated == 0 || dailix_sheet::footage::is_day(s.day.trim()));
+        let ready = chosen.is_some() && picked > 0 && s.filing.is_none() && (undated == 0 || dailix_sheet::footage::is_day(s.day.trim()));
         let go = match &chosen {
             Some(t) => format!("File {} into {}", crate::library::count(picked, "video"), t.title),
             None => "File".to_owned(),
