@@ -1,5 +1,7 @@
 # Dailix
 
+[![CI](https://github.com/nedcrest/dailix/actions/workflows/ci.yml/badge.svg)](https://github.com/nedcrest/dailix/actions/workflows/ci.yml)
+
 Bringing footage in and choosing it. *Dailies* is the trade's word for a
 day's raw footage, looked through and sorted before the edit: Dailix
 takes it off cards and phones, lets you look through it and mark what's
