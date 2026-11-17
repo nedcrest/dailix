@@ -247,6 +247,36 @@ impl App {
         modal(ui::dialog(card, ui::DIALOG_WIDTH), Message::Sort(SortMsg::AllCancel))
     }
 
+    /// The bar under the top bar while the sorter files, archives or
+    /// frees: the line of what's going on, a progress bar, «n / total».
+    pub(super) fn job_bar(&self) -> Option<Element<'_, Message>> {
+        let s = self.sorter.as_ref()?;
+        let (done, total) = s.filing.as_ref().map(|f| (f.done, f.total)).or_else(|| s.moving.as_ref().map(|m| (m.done, m.total)))?;
+        let said = self.notice.clone().unwrap_or_default();
+        let bar = row![
+            text(format!("⟳ {said}")).size(15).width(Length::Fill),
+            iced::widget::progress_bar(0.0..=total.max(1) as f32, done as f32).girth(8).length(260).style(|t: &iced::Theme| iced::widget::progress_bar::Style {
+                background: iced::Color { a: 0.35, ..iced::Color::BLACK }.into(),
+                bar: t.extended_palette().primary.strong.text.into(),
+                border: iced::Border { radius: 4.0.into(), ..Default::default() },
+            }),
+            text(format!("{done} / {total}")).size(15),
+        ]
+        .spacing(14)
+        .align_y(iced::Alignment::Center);
+        Some(
+            iced::widget::container(bar)
+                .padding([8, 16])
+                .width(Length::Fill)
+                .style(|t: &iced::Theme| iced::widget::container::Style {
+                    background: Some(t.extended_palette().primary.strong.color.into()),
+                    text_color: Some(t.extended_palette().primary.strong.text),
+                    ..Default::default()
+                })
+                .into(),
+        )
+    }
+
     /// The question before TMP lets videos go.
     pub(super) fn free_layer(&self) -> Element<'_, Message> {
         let Some(list) = self.sorter.as_ref().and_then(|s| s.asking_free.as_ref()) else { return space().into() };

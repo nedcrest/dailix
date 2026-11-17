@@ -937,8 +937,15 @@ impl App {
         if let Some(e) = &self.error {
             page = page.push(line(e.clone(), text::danger, Message::DismissError));
         }
-        if let Some(n) = &self.notice {
-            page = page.push(line(n.clone(), text::secondary, Message::DismissNotice));
+        // A job under way: its own bar, coloured, with how far (the user,
+        // 2026-11-17: the grey line was easy to miss); else the notice.
+        match self.job_bar() {
+            Some(bar) => page = page.push(bar),
+            None => {
+                if let Some(n) = &self.notice {
+                    page = page.push(line(n.clone(), text::secondary, Message::DismissNotice));
+                }
+            }
         }
         if self.at_home && self.sorter.is_some() {
             return page.push(self.sorter_page()).into();
