@@ -292,7 +292,7 @@ impl App {
     pub(super) fn all_layer(&self) -> Element<'_, Message> {
         let Some(s) = self.sorter.as_ref().filter(|s| s.asking_all) else { return space().into() };
         let bytes: u64 = s.raws.iter().filter_map(|r| std::fs::metadata(&r.path).ok()).map(|m| m.len()).sum();
-        let archive = self.sources_place().map_or_else(|| "(not set)".to_owned(), |p| p.display().to_string());
+        let archive = self.sources_place().map_or_else(|| "(not set)".to_owned(), |p| omnix::paths::shown(&p));
         let said = format!(
             "{} ({:.1} GB) are copied into the archive, {archive}: by trip and day, those in no trip under {}/<day>. Each copy is checked by its hash; only then the video leaves TMP, to the trash (restorable from there). One that fails stays in TMP.",
             crate::library::count(s.raws.len(), "video"),

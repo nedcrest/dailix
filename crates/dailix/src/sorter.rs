@@ -432,7 +432,7 @@ impl App {
             return container(text("Reading TMP…").size(15).style(text::secondary)).center(Length::Fill).into();
         }
         if s.raws.is_empty() {
-            let place = self.tmp_place().map(|p| p.display().to_string()).unwrap_or_default();
+            let place = self.tmp_place().map(|p| omnix::paths::shown(&p)).unwrap_or_default();
             let words = column![
                 text("TMP is empty").size(22),
                 text(format!("Videos put into {place} show here, by the day they were filmed.")).size(14).style(text::secondary),

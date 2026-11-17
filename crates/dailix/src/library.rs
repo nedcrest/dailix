@@ -224,7 +224,7 @@ pub fn first_run(places: &[Place], trips: usize) -> Option<FirstRun> {
     Some(match (&projects.path, projects.online) {
         (None, _) => FirstRun::Welcome,
         (Some(p), false) => FirstRun::Say(format!("The Trips folder {} isn't there: is its disk plugged in?", p.display()), Some(PlaceKind::Projects)),
-        (Some(p), true) => FirstRun::Say(format!("No trips in {} yet: + New trip makes one.", p.display()), None),
+        (Some(p), true) => FirstRun::Say(format!("No trips in {} yet: + New trip makes one, or TMP (its videos sorted into a new trip).", p.display()), None),
     })
 }
 
@@ -284,7 +284,7 @@ mod tests {
         let away = [place(PlaceKind::Projects, Some("/trips"), false)];
         assert!(matches!(first_run(&away, 0), Some(FirstRun::Say(_, Some(PlaceKind::Projects)))), "its disk not plugged in");
         let empty = [place(PlaceKind::Projects, Some("/trips"), true)];
-        assert_eq!(first_run(&empty, 0), Some(FirstRun::Say("No trips in /trips yet: + New trip makes one.".to_owned(), None)));
+        assert_eq!(first_run(&empty, 0), Some(FirstRun::Say("No trips in /trips yet: + New trip makes one, or TMP (its videos sorted into a new trip).".to_owned(), None)));
         assert_eq!(first_run(&empty, 2), None, "trips to show");
     }
 
