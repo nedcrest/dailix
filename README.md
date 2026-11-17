@@ -43,18 +43,23 @@ rather than a change everywhere.
 
 ## What it does, in order
 
-1. **Bring in.** Media from a card, a phone or a folder are copied into
-   TMP and checked against the source (sizes, then hashes). The card is
-   left as it was.
-2. **Choose.** The contact sheet shows a day's clips as tiles: rate each
+1. **Bring in.** What the cameras and phones filmed is copied into TMP
+   (by hand for now; reading cards is planned).
+2. **Sort into trips.** The TMP sorter shows TMP's videos by the day
+   they were filmed: pick some, choose a trip (or make one) and its
+   parts (your own groups across days, «Rides on Kos»), «File». Copies
+   go into the trip by day; TMP keeps the originals and a ledger of
+   where each went.
+3. **Into the archive, TMP freed.** A day's (or all of TMP's) originals
+   are copied into Sources by trip and day, each checked by its BLAKE3
+   hash read back; only then does TMP let them go, to the trash.
+4. **Choose.** The contact sheet shows a day's clips as tiles: rate each
    (✓ take, ? think, ✕ junk), note it, mark segments (in and out, a role
    such as *B-roll* or *talk*, a note), flag what needs finding (a meme, a
    sound), and write the day's story.
-3. **File away.** The originals move from TMP into sources, by trip and
-   day, unchanged.
-4. **Hand over.** The chosen clips go into a trip in Trips, and an
-   Omnix edit is made from the marking (Omnix reads the marking itself
-   too: segments set in its bin land in the same file).
+5. **Hand over.** An Omnix edit is made from the marking, of a day, the
+   trip or a part (Omnix reads the marking itself too: segments set in
+   its bin land in the same file; its bin shows a part alone).
 
 ## A project folder
 
@@ -91,6 +96,10 @@ dailix open <project>          the window on that project
 dailix new-trip [title]        a new trip in the projects place (no title: the form)
 dailix places [...]            the three places: shows them, or sets those given
 dailix trips                   the trips and their days, as Home sums them up
+dailix tmp list                TMP's videos by day, and where each went
+dailix tmp file <trip> <files> [--part NAME] [--day D]   filed into a trip and its parts
+dailix tmp archive             TMP's videos into Sources, each checked by hash
+dailix tmp free [--yes]        TMP's archived videos to the trash (checked again)
 dailix title <project> [name]  a project's name as people say it
 dailix tidy-edits <project>    old loose edits moved into videos/<name>/ (--apply)
 dailix import-legacy <old>      a footage-agent project made into a Dailix one
