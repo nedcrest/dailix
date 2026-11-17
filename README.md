@@ -47,7 +47,7 @@ rather than a change everywhere.
    (by hand for now; reading cards is planned).
 2. **Sort into trips.** The TMP sorter shows TMP's videos by the day
    they were filmed: pick some, choose a trip (or make one) and its
-   parts (your own groups across days, «Rides on Kos»), «File». Copies
+   parts (your own groups across days, «Island rides»), «File». Copies
    go into the trip by day; TMP keeps the originals and a ledger of
    where each went.
 3. **Into the archive, TMP freed.** A day's (or all of TMP's) originals

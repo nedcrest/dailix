@@ -1,7 +1,7 @@
 //! TMP sorted into trips (Omnix gap 117): the videos that landed in the
 //! TMP place, from cards, phones or a friend, each filed into a trip under
-//! the day it was filmed, and into the trip's parts if asked («Rides on
-//! Kos»: the scooter's videos, every day).
+//! the day it was filmed, and into the trip's parts if asked («Island
+//! rides»: the scooter's videos, every day).
 //!
 //! Filing copies (`add::add`): TMP keeps the original till it goes to the
 //! archive (`docs/INGEST.md`: never only one copy), and says where each
@@ -409,7 +409,7 @@ mod tests {
     #[test]
     fn the_ledger_says_where_each_went_once() {
         let mut l = Ledger::default();
-        let to = Filed { trip: "2026-08_kos".into(), day: "2026-08-22".into(), name: "DJI_0001.MP4".into() };
+        let to = Filed { trip: "2026-08_island".into(), day: "2026-08-22".into(), name: "DJI_0001.MP4".into() };
         l.record("card/DJI_0001.MP4", to.clone());
         l.record("card/DJI_0001.MP4", to.clone());
         assert_eq!(l.filed("card/DJI_0001.MP4"), [to]);
@@ -426,7 +426,7 @@ mod tests {
     #[test]
     fn another_file_at_a_videos_place_is_a_new_video() {
         let mut l = Ledger::default();
-        l.record("card/DJI_0001.MP4", Filed { trip: "kos".into(), day: "2026-08-22".into(), name: "DJI_0001.MP4".into() });
+        l.record("card/DJI_0001.MP4", Filed { trip: "island".into(), day: "2026-08-22".into(), name: "DJI_0001.MP4".into() });
         l.sizes.insert("card/DJI_0001.MP4".into(), 100);
         l.archived.insert("card/DJI_0001.MP4".into(), crate::archive::Archived { path: "/s/x".into(), hash: "h".into() });
         let same = l.same_files(|_| Some(100));
@@ -452,11 +452,11 @@ mod tests {
     fn a_video_whose_copy_left_its_trip_is_new_again() {
         let mut l = Ledger::default();
         let at = |trip: &str| Filed { trip: trip.into(), day: "2026-08-22".into(), name: "a.MP4".into() };
-        l.record("card/a.MP4", at("kos"));
         l.record("card/a.MP4", at("island"));
-        l.record("card/b.MP4", at("island"));
-        let now = l.keep(|f| f.trip == "kos");
-        assert_eq!(now.filed("card/a.MP4"), [at("kos")]);
+        l.record("card/a.MP4", at("village"));
+        l.record("card/b.MP4", at("village"));
+        let now = l.keep(|f| f.trip == "island");
+        assert_eq!(now.filed("card/a.MP4"), [at("island")]);
         assert!(now.filed("card/b.MP4").is_empty() && !now.files.contains_key("card/b.MP4"));
     }
 
@@ -529,9 +529,9 @@ mod tests {
 
     #[test]
     fn the_sorter_says_how_far_filing_is_and_where_a_tile_went() {
-        assert_eq!(filing_line(2, 7, "Kos", "DJI_0001.MP4"), "Copying 3 of 7 into Kos: DJI_0001.MP4");
-        assert_eq!(went_lines("Kos", &[]), ("✓ In Kos's days".to_owned(), "In no part".to_owned()));
-        assert_eq!(went_lines("Kos", &["Rides", "Beach"]).1, "Part: Rides, Beach");
+        assert_eq!(filing_line(2, 7, "Island", "DJI_0001.MP4"), "Copying 3 of 7 into Island: DJI_0001.MP4");
+        assert_eq!(went_lines("Island", &[]), ("✓ In Island's days".to_owned(), "In no part".to_owned()));
+        assert_eq!(went_lines("Island", &["Rides", "Beach"]).1, "Part: Rides, Beach");
         assert_eq!((player_share(0.05), player_share(0.4), player_share(0.9)), (0.15, 0.4, 0.75));
     }
 
@@ -552,7 +552,7 @@ mod tests {
     fn tmp_is_described_a_day_at_a_time() {
         let raws = [raw("card/DJI_1.MP4", Some("2026-08-19")), raw("friend/x.mp4", None)];
         let mut l = Ledger::default();
-        l.record("card/DJI_1.MP4", Filed { trip: "kos".into(), day: "2026-08-19".into(), name: "DJI_1.MP4".into() });
-        assert_eq!(describe(&raws, &l), "2026-08-19  1 video\n  card/DJI_1.MP4  10.0 s  → kos/2026-08-19/DJI_1.MP4\nno date  1 video\n  friend/x.mp4  10.0 s  new\n");
+        l.record("card/DJI_1.MP4", Filed { trip: "island".into(), day: "2026-08-19".into(), name: "DJI_1.MP4".into() });
+        assert_eq!(describe(&raws, &l), "2026-08-19  1 video\n  card/DJI_1.MP4  10.0 s  → island/2026-08-19/DJI_1.MP4\nno date  1 video\n  friend/x.mp4  10.0 s  new\n");
     }
 }

@@ -5,7 +5,7 @@
 //! new → filed (into a trip) → archived → freed (gone from TMP).
 //!
 //! The archive keeps the originals as they came, by trip and day, as
-//! Kos's does: `<sources>/<trip>/<day>/<the original's name>`. The ledger
+//! an archive by trip and day: `<sources>/<trip>/<day>/<the original's name>`. The ledger
 //! in TMP says what's archived and its hash.
 
 use crate::tmp::{Filed, Ledger};
@@ -187,7 +187,7 @@ mod tests {
 
     #[test]
     fn the_archive_keeps_originals_by_trip_and_day() {
-        assert_eq!(target(Path::new("/a"), Some(&filed("2026-08_kos", "2026-08-22")), Some("2026-08-22"), Path::new("/tmp-place/card/DJI_0001.MP4")), PathBuf::from("/a/2026-08_kos/2026-08-22/DJI_0001.MP4"));
+        assert_eq!(target(Path::new("/a"), Some(&filed("2026-08_island", "2026-08-22")), Some("2026-08-22"), Path::new("/tmp-place/card/DJI_0001.MP4")), PathBuf::from("/a/2026-08_island/2026-08-22/DJI_0001.MP4"));
         assert_eq!(target(Path::new("/a"), None, Some("2026-08-22"), Path::new("/t/DJI_0002.MP4")), PathBuf::from("/a/_not-in-a-trip/2026-08-22/DJI_0002.MP4"));
         assert_eq!(target(Path::new("/a"), None, None, Path::new("/t/x.mp4")), PathBuf::from("/a/_not-in-a-trip/no-date/x.mp4"));
         assert_eq!(counts(&[Stage::New, Stage::Filed, Stage::Archived]), (2, 1));
@@ -210,7 +210,7 @@ mod tests {
         std::fs::create_dir_all(tmp.join("card")).unwrap();
         let original = tmp.join("card/DJI_0001.MP4");
         std::fs::write(&original, b"the picture").unwrap();
-        let f = filed("kos", "2026-08-22");
+        let f = filed("island", "2026-08-22");
         let a = archive_one(&original, Some(&f), None, &sources).unwrap();
         assert_eq!((std::fs::read(&a.path).unwrap(), a.hash.clone()), (b"the picture".to_vec(), hash(&original).unwrap()));
         // Again: the copy there is taken; another file in its place isn't overwritten.
@@ -237,8 +237,8 @@ mod tests {
         let a = m.archived.clone().unwrap();
         assert!(m.freed && m.error.is_none() && !original.exists() && a.path.ends_with("_not-in-a-trip/2026-08-22/DJI_0002.MP4") && not_in_a_trip(&a, &sources));
         // Filed later: the copy follows into its trip's day, the old one goes.
-        let moved = relocate(&a, &filed("kos", "2026-08-22"), &sources).unwrap();
-        assert!(moved.path.ends_with("kos/2026-08-22/DJI_0002.MP4") && moved.hash == a.hash && !a.path.exists() && !not_in_a_trip(&moved, &sources));
+        let moved = relocate(&a, &filed("island", "2026-08-22"), &sources).unwrap();
+        assert!(moved.path.ends_with("island/2026-08-22/DJI_0002.MP4") && moved.hash == a.hash && !a.path.exists() && !not_in_a_trip(&moved, &sources));
         // No archive to copy into: nothing leaves TMP.
         std::fs::write(&original, b"again").unwrap();
         std::fs::write(dir.join("a-file"), b"x").unwrap();
@@ -251,7 +251,7 @@ mod tests {
     fn a_videos_stage_comes_from_the_ledger() {
         let mut l = Ledger::default();
         assert_eq!(stage(&l, "a"), Stage::New);
-        l.record("a", filed("kos", "2026-08-22"));
+        l.record("a", filed("island", "2026-08-22"));
         assert_eq!(stage(&l, "a"), Stage::Filed);
         l.archived.insert("a".into(), Archived { path: "/s/a".into(), hash: "h".into() });
         assert_eq!(stage(&l, "a"), Stage::Archived);

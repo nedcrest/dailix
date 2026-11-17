@@ -286,7 +286,7 @@ impl App {
     /// (as a trip's card; a click opens it in the sheet), its name and
     /// facts, and under it «→ Omnix», rename and ✕.
     pub(super) fn trip_parts<'a>(&'a self, trip: &'a Trip) -> Element<'a, Message> {
-        let what = text("This trip's videos from TMP, in groups of your own across days («Rides on Kos»): the TMP sorter fills them as it files, the sheet's pane ticks a clip in.").size(12).style(text::secondary);
+        let what = text("This trip's videos from TMP, in groups of your own across days («Island rides»): the TMP sorter fills them as it files, the sheet's pane ticks a clip in.").size(12).style(text::secondary);
         let col = column![self.fold_head("Parts", trip.parts.len()), what].spacing(6);
         if self.trip_folded.contains("Parts") || trip.parts.is_empty() {
             return col.into();

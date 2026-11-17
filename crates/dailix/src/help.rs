@@ -12,7 +12,7 @@ pub const WAY: [(&str, &str); 7] = [
     ("Into the archive", "In the sorter, a day's «Into the archive»: the originals copied into the Sources folder by trip and day (those in no trip under _not-in-a-trip), each checked by its hash."),
     ("Free TMP", "Then «Free TMP»: the originals the archive holds (checked again) go to the trash."),
     ("Choose", "The trip's contact sheet: rate (P ? X), mark segments (I O), write each day's story."),
-    ("Parts", "Your own groups across days («Rides on Kos»): from the sorter, the sheet's pane, the trip's page."),
+    ("Parts", "Your own groups across days («Island rides»): from the sorter, the sheet's pane, the trip's page."),
     ("Into Omnix", "«→ Omnix» on a day, the trip or a part: an edit of what you chose, opened in Omnix."),
 ];
 

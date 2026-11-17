@@ -607,7 +607,7 @@ impl App {
         }
         let mut col = column![text("Parts").size(13).style(text::secondary)].spacing(6);
         if names.is_empty() {
-            col = col.push(text("None yet: a part is your own list of clips, from any day («Rides on Kos»).").size(12).style(text::secondary));
+            col = col.push(text("None yet: a part is your own list of clips, from any day («Island rides»).").size(12).style(text::secondary));
         }
         for n in names {
             let on = s.parts.iter().any(|p| dailix_sheet::parts::same_name(p, &n));
