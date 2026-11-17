@@ -94,8 +94,9 @@ impl App {
         if s.busy() {
             return Task::none();
         }
-        let want = if free { Stage::Archived } else { Stage::Filed };
-        let queue: VecDeque<crate::tmp::Raw> = list.into_iter().filter_map(|i| s.raws.get(i)).filter(|r| archive::stage(&s.ledger, &r.rel) == want).cloned().collect();
+        // Freeing: what's archived; archiving: everything not yet, in a
+        // trip or not.
+        let queue: VecDeque<crate::tmp::Raw> = list.into_iter().filter_map(|i| s.raws.get(i)).filter(|r| (archive::stage(&s.ledger, &r.rel) == Stage::Archived) == free).cloned().collect();
         if queue.is_empty() {
             return Task::none();
         }
@@ -115,10 +116,11 @@ impl App {
             let poster = crate::tmp::poster(&tmp.unwrap_or_default(), &raw.rel);
             return Task::perform(blocking(move || archive::free_one(&raw.path, &poster, &archived).map(|()| None)), move |r| Message::Sort(SortMsg::MovedOne(rel.clone(), r)));
         }
-        let (Some(sources), Some(filed)) = (sources, s.ledger.filed(&raw.rel).first().cloned()) else {
+        let Some(sources) = sources else {
             return Task::done(Message::Sort(SortMsg::MovedOne(rel, Err("the archive (Sources) isn't set, or isn't there".into()))));
         };
-        Task::perform(blocking(move || archive::archive_one(&raw.path, &filed, &sources).map(Some)), move |r| Message::Sort(SortMsg::MovedOne(rel.clone(), r)))
+        let filed = s.ledger.filed(&raw.rel).first().cloned();
+        Task::perform(blocking(move || archive::archive_one(&raw.path, filed.as_ref(), raw.day.as_deref(), &sources).map(Some)), move |r| Message::Sort(SortMsg::MovedOne(rel.clone(), r)))
     }
 
     /// One done: an archived copy written into the ledger (before the next,
@@ -170,15 +172,15 @@ impl App {
         let in_parts = list.iter().filter(|i| self.in_a_part(s, &s.raws[**i].rel)).count();
         let facts = format!("{} · {} · {} in a trip's days · {in_parts} in a part · {} in the archive", day.unwrap_or("No date"), crate::library::count(list.len(), "video"), n(Stage::Filed) + n(Stage::Archived), n(Stage::Archived));
         let busy = s.busy();
-        let step: Option<Element<'a, Message>> = match archive::next(&stages) {
-            Next::Archive(k) => Some(match self.sources_place() {
-                Some(_) => tip(ui::small(format!("Into the archive ({k})"), ui::Kind::Primary).on_press_maybe((!busy).then(|| Message::Sort(SortMsg::Archive(list.to_vec())))), text("Copied into the Sources folder by trip and day, each checked by its hash there; TMP keeps them till you free it"), tooltip::Position::Bottom),
-                None => tip(ui::small("Set the archive…", ui::Kind::Secondary).on_press(Message::ChoosePlace(PlaceKind::Sources)), text("The archive (Sources) isn't set, or its disk isn't there: choose its folder"), tooltip::Position::Bottom),
-            }),
-            Next::Free(k) => Some(tip(ui::small(format!("Free TMP ({k})"), ui::Kind::Secondary).on_press_maybe((!busy).then(|| Message::Sort(SortMsg::FreeAsk(list.to_vec())))), text("To the trash: the archive holds them, checked again before each goes"), tooltip::Position::Bottom)),
-            _ => None,
-        };
-        row![text(facts).size(14).style(text::secondary)].push(step).spacing(12).align_y(iced::Alignment::Center).into()
+        // Both steps, each when it has something: a day half sorted can
+        // still go into the archive (its unsorted under _not-in-a-trip).
+        let (to_archive, to_free) = archive::counts(&stages);
+        let archive = (to_archive > 0).then(|| match self.sources_place() {
+            Some(_) => tip(ui::small(format!("Into the archive ({to_archive})"), ui::Kind::Primary).on_press_maybe((!busy).then(|| Message::Sort(SortMsg::Archive(list.to_vec())))), text("Copied into the Sources folder, each checked by its hash there: by trip and day, or under _not-in-a-trip/<day> if in no trip yet; TMP keeps them till you free it"), tooltip::Position::Bottom),
+            None => tip(ui::small("Set the archive…", ui::Kind::Secondary).on_press(Message::ChoosePlace(PlaceKind::Sources)), text("The archive (Sources) isn't set, or its disk isn't there: choose its folder"), tooltip::Position::Bottom),
+        });
+        let free = (to_free > 0).then(|| tip(ui::small(format!("Free TMP ({to_free})"), ui::Kind::Secondary).on_press_maybe((!busy).then(|| Message::Sort(SortMsg::FreeAsk(list.to_vec())))), text("To the trash: the archive holds them, checked again before each goes"), tooltip::Position::Bottom));
+        row![text(facts).size(14).style(text::secondary)].push(archive).push(free).spacing(12).align_y(iced::Alignment::Center).into()
     }
 
     /// The question before TMP lets videos go.

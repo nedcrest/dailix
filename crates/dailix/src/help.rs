@@ -9,7 +9,7 @@
 pub const WAY: [(&str, &str); 7] = [
     ("Into TMP", "Copy what the cameras and phones filmed into the TMP folder (by hand for now; Dailix doesn't read cards yet)."),
     ("Sort into trips", "Home's «TMP» button: pick videos, choose a trip (or make one) and its parts, «File». Copies go into the trip by day; TMP keeps the originals."),
-    ("Into the archive", "In the sorter, a day's «Into the archive»: the originals copied into the Sources folder by trip and day, each checked by its hash."),
+    ("Into the archive", "In the sorter, a day's «Into the archive»: the originals copied into the Sources folder by trip and day (those in no trip under _not-in-a-trip), each checked by its hash."),
     ("Free TMP", "Then «Free TMP»: the originals the archive holds (checked again) go to the trash."),
     ("Choose", "The trip's contact sheet: rate (P ? X), mark segments (I O), write each day's story."),
     ("Parts", "Your own groups across days («Rides on Kos»): from the sorter, the sheet's pane, the trip's page."),

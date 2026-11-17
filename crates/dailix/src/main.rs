@@ -175,8 +175,9 @@ enum TmpCmd {
         #[arg(long)]
         part: Vec<String>,
     },
-    /// TMP's filed videos not in the archive yet copied into the Sources
-    /// folder (`<trip>/<day>/`), each checked there by its hash.
+    /// TMP's videos not in the archive yet copied into the Sources folder
+    /// (`<trip>/<day>/`, or `_not-in-a-trip/<day>/` for those in no trip),
+    /// each checked there by its hash.
     Archive,
     /// TMP's videos the archive holds, to the trash, each archive copy
     /// checked again first. Without --yes, only says what would go.
@@ -194,10 +195,10 @@ fn tmp_cmd(cmd: TmpCmd) -> Result<(), Box<dyn std::error::Error>> {
         TmpCmd::Archive => {
             let sources = settings::Settings::load().place(settings::PlaceKind::Sources).filter(|p| p.is_dir()).ok_or("the archive (Sources) isn't set, or isn't there (dailix places --sources FOLDER)")?;
             let l = ledger();
-            let todo: Vec<tmp::Raw> = tmp::scan(&place).into_iter().filter(|r| archive::stage(&l, &r.rel) == archive::Stage::Filed).collect();
+            let todo: Vec<tmp::Raw> = tmp::scan(&place).into_iter().filter(|r| archive::stage(&l, &r.rel) != archive::Stage::Archived).collect();
             for r in todo {
-                let filed = l.filed(&r.rel)[0].clone();
-                match archive::archive_one(&r.path, &filed, &sources) {
+                let filed = l.filed(&r.rel).first().cloned();
+                match archive::archive_one(&r.path, filed.as_ref(), r.day.as_deref(), &sources) {
                     Ok(a) => {
                         println!("{}  → {}", r.rel, a.path.display());
                         tmp::Ledger::update(&place, |l| {

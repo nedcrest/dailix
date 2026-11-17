@@ -19,10 +19,26 @@ pub struct Archived {
     pub hash: String,
 }
 
+/// Where TMP's videos in no trip go in the archive (the user,
+/// 2026-11-17: a day's unsorted videos had no way into it), by day.
+pub const NOT_IN_A_TRIP: &str = "_not-in-a-trip";
+
 /// Where a TMP video goes in the archive: the trip and day it was filed
-/// under, its own name.
-pub fn target(sources: &Path, f: &Filed, original: &Path) -> PathBuf {
-    sources.join(&f.trip).join(&f.day).join(original.file_name().unwrap_or_default())
+/// under, its own name; one in no trip under `_not-in-a-trip/<its day>`
+/// (`no-date` without one).
+pub fn target(sources: &Path, filed: Option<&Filed>, day: Option<&str>, original: &Path) -> PathBuf {
+    let name = original.file_name().unwrap_or_default();
+    match filed {
+        Some(f) => sources.join(&f.trip).join(&f.day).join(name),
+        None => sources.join(NOT_IN_A_TRIP).join(day.unwrap_or("no-date")).join(name),
+    }
+}
+
+/// How many of a group can go into the archive (not there yet), and how
+/// many TMP can let go (there, checked): a day offers both.
+pub fn counts(stages: &[Stage]) -> (usize, usize) {
+    let archived = stages.iter().filter(|s| **s == Stage::Archived).count();
+    (stages.len() - archived, archived)
 }
 
 /// The whole file's BLAKE3, as hex.
@@ -82,8 +98,8 @@ pub fn next(stages: &[Stage]) -> Next {
 /// under where it was filed, and checked there: its hash read back from
 /// the copy is the original's. A copy already there with the same hash
 /// is taken as it is; another file in its place is never written over.
-pub fn archive_one(original: &Path, filed: &Filed, sources: &Path) -> Result<Archived, String> {
-    let to = target(sources, filed, original);
+pub fn archive_one(original: &Path, filed: Option<&Filed>, day: Option<&str>, sources: &Path) -> Result<Archived, String> {
+    let to = target(sources, filed, day, original);
     let want = hash(original).map_err(|e| format!("{}: {e}", original.display()))?;
     if to.exists() {
         let there = hash(&to).map_err(|e| format!("{}: {e}", to.display()))?;
@@ -131,7 +147,10 @@ mod tests {
 
     #[test]
     fn the_archive_keeps_originals_by_trip_and_day() {
-        assert_eq!(target(Path::new("/a"), &filed("2026-08_kos", "2026-08-22"), Path::new("/tmp-place/card/DJI_0001.MP4")), PathBuf::from("/a/2026-08_kos/2026-08-22/DJI_0001.MP4"));
+        assert_eq!(target(Path::new("/a"), Some(&filed("2026-08_kos", "2026-08-22")), Some("2026-08-22"), Path::new("/tmp-place/card/DJI_0001.MP4")), PathBuf::from("/a/2026-08_kos/2026-08-22/DJI_0001.MP4"));
+        assert_eq!(target(Path::new("/a"), None, Some("2026-08-22"), Path::new("/t/DJI_0002.MP4")), PathBuf::from("/a/_not-in-a-trip/2026-08-22/DJI_0002.MP4"));
+        assert_eq!(target(Path::new("/a"), None, None, Path::new("/t/x.mp4")), PathBuf::from("/a/_not-in-a-trip/no-date/x.mp4"));
+        assert_eq!(counts(&[Stage::New, Stage::Filed, Stage::Archived]), (2, 1));
     }
 
     #[test]
@@ -152,12 +171,12 @@ mod tests {
         let original = tmp.join("card/DJI_0001.MP4");
         std::fs::write(&original, b"the picture").unwrap();
         let f = filed("kos", "2026-08-22");
-        let a = archive_one(&original, &f, &sources).unwrap();
+        let a = archive_one(&original, Some(&f), None, &sources).unwrap();
         assert_eq!((std::fs::read(&a.path).unwrap(), a.hash.clone()), (b"the picture".to_vec(), hash(&original).unwrap()));
         // Again: the copy there is taken; another file in its place isn't overwritten.
-        assert_eq!(archive_one(&original, &f, &sources).unwrap(), a);
+        assert_eq!(archive_one(&original, Some(&f), None, &sources).unwrap(), a);
         std::fs::write(&a.path, b"something else").unwrap();
-        assert!(archive_one(&original, &f, &sources).is_err());
+        assert!(archive_one(&original, Some(&f), None, &sources).is_err());
         // A changed copy keeps the original in TMP; so does another original.
         assert!(free_one(&original, &tmp.join("none.jpg"), &a).is_err() && original.is_file());
         std::fs::write(&a.path, b"the picture").unwrap();
