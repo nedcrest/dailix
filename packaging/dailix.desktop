@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Dailix
+GenericName=Footage Organizer
+Comment=Sort a trip's footage, look through it and choose it
+Exec=dailix
+Icon=dailix
+Terminal=false
+Categories=AudioVideo;Video;
+Keywords=footage;contact sheet;trip;archive;video;
+StartupWMClass=dailix

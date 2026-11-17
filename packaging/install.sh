@@ -1,0 +1,118 @@
+#!/bin/sh
+# Installs Dailix for the current user (or system-wide with --prefix /usr/local, as root):
+# the binary, a menu entry and its icon.
+#
+# Run it from the unpacked release archive, or on its own, in which case it downloads
+# the latest release first:
+#   curl -fsSL https://github.com/nedcrest/dailix/releases/latest/download/install.sh | sh
+#
+# Options: --prefix DIR (default ~/.local), --uninstall.
+set -eu
+
+# Where releases are published: run on its own, it downloads the latest.
+REPO=nedcrest/dailix
+ARCHIVE=dailix-x86_64-linux.tar.gz
+prefix="${HOME}/.local"
+uninstall=0
+
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --prefix) prefix="$2"; shift 2 ;;
+        --prefix=*) prefix="${1#*=}"; shift ;;
+        --uninstall) uninstall=1; shift ;;
+        -h|--help) sed -n '2,10p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        *) echo "unknown option: $1" >&2; exit 2 ;;
+    esac
+done
+
+bin="$prefix/bin"
+apps="$prefix/share/applications"
+icons="$prefix/share/icons/hicolor"
+
+refresh() {
+    command -v update-desktop-database >/dev/null 2>&1 && update-desktop-database -q "$apps" 2>/dev/null || true
+    command -v gtk-update-icon-cache >/dev/null 2>&1 && gtk-update-icon-cache -q -t "$icons" 2>/dev/null || true
+}
+
+if [ "$uninstall" = 1 ]; then
+    rm -f "$bin/dailix" "$apps/dailix.desktop" \
+        "$icons/256x256/apps/dailix.png" "$icons/scalable/apps/dailix.svg"
+    refresh
+    echo "Removed Dailix from $prefix (your settings in ~/.config/dailix are kept)."
+    exit 0
+fi
+
+if [ "$(uname -m)" != x86_64 ]; then
+    echo "This build is for x86_64 Linux; build from source on $(uname -m)." >&2
+    exit 1
+fi
+
+# Files beside this script (the unpacked archive), or download the archive.
+src="$(cd "$(dirname "$0")" 2>/dev/null && pwd || echo .)"
+if [ ! -f "$src/dailix" ] || [ ! -f "$src/dailix.desktop" ]; then
+    tmp="$(mktemp -d)"
+    trap 'rm -rf "$tmp"' EXIT
+    [ -n "$REPO" ] || { echo "Dailix has no published releases yet: run this from an unpacked archive, or build from source (README)." >&2; exit 1; }
+    base="https://github.com/$REPO/releases/latest/download"
+    echo "Downloading $base/$ARCHIVE"
+    if command -v curl >/dev/null 2>&1; then
+        curl -fL --progress-bar "$base/$ARCHIVE" -o "$tmp/$ARCHIVE"
+        curl -fsSL "$base/SHA256SUMS" -o "$tmp/SHA256SUMS"
+    else
+        wget -q --show-progress "$base/$ARCHIVE" -O "$tmp/$ARCHIVE"
+        wget -q "$base/SHA256SUMS" -O "$tmp/SHA256SUMS"
+    fi
+    # Checked against the release's checksums, so a broken or tampered
+    # download is never installed.
+    want="$(awk -v f="$ARCHIVE" '$2 == f || $2 == "*" f { print $1 }' "$tmp/SHA256SUMS")"
+    if command -v sha256sum >/dev/null 2>&1; then
+        got="$(sha256sum "$tmp/$ARCHIVE" | cut -d' ' -f1)"
+    else
+        got="$(shasum -a 256 "$tmp/$ARCHIVE" | cut -d' ' -f1)"
+    fi
+    if [ -z "$want" ] || [ "$got" != "$want" ]; then
+        echo "The download doesn't match the release's SHA256SUMS; not installing." >&2
+        exit 1
+    fi
+    tar -xzf "$tmp/$ARCHIVE" -C "$tmp"
+    src="$(find "$tmp" -mindepth 1 -maxdepth 1 -type d | head -n 1)"
+fi
+
+mkdir -p "$bin" "$apps" "$icons/256x256/apps" "$icons/scalable/apps"
+install -m 755 "$src/dailix" "$bin/dailix"
+install -m 644 "$src/dailix.png" "$icons/256x256/apps/dailix.png"
+install -m 644 "$src/dailix.svg" "$icons/scalable/apps/dailix.svg"
+# The menu entry names the binary by full path, so it works even when $bin isn't on PATH.
+sed "s|^Exec=dailix|Exec=$bin/dailix|" "$src/dailix.desktop" > "$apps/dailix.desktop"
+chmod 644 "$apps/dailix.desktop"
+refresh
+
+echo "Installed $("$bin/dailix" --version) to $bin/dailix"
+
+# Runtime needs that a binary can't bring along.
+missing=""
+for tool in ffmpeg ffprobe; do
+    command -v "$tool" >/dev/null 2>&1 || missing="$missing $tool"
+done
+if [ -n "$missing" ]; then
+    echo
+    echo "Missing:$missing. Dailix reads videos and makes their posters through them; install ffmpeg, e.g."
+    echo "  sudo apt install ffmpeg   |   sudo dnf install ffmpeg   |   sudo pacman -S ffmpeg"
+fi
+if ! ldconfig -p 2>/dev/null | grep -q 'libasound\.so\.2'; then
+    echo
+    echo "libasound (ALSA) was not found; it is needed for sound, e.g. sudo apt install libasound2."
+fi
+case ":$PATH:" in
+    *":$bin:"*) ;;
+    *) echo; echo "Note: $bin is not on your PATH; add it to run 'dailix' from a terminal." ;;
+esac
+echo
+# Its editor: «→ Omnix» opens edits in Omnix, found beside Dailix or on PATH.
+if [ ! -x "$bin/omnix" ] && ! command -v omnix >/dev/null 2>&1; then
+    echo
+    echo "Omnix, the editor Dailix hands its edits to, isn't installed; its install.sh:"
+    echo "  curl -fsSL https://github.com/nedcrest/omnix-360-studio/releases/latest/download/install.sh | sh"
+fi
+echo
+echo "Start it from the application menu (Dailix), or: dailix [open <trip>]"

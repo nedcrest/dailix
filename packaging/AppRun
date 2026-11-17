@@ -1,0 +1,5 @@
+#!/bin/sh
+# Without a command, the window; otherwise the command line as usual:
+# `Dailix-x86_64.AppImage tmp list`.
+here="$(dirname "$(readlink -f "$0")")"
+exec "$here/usr/bin/dailix" "$@"

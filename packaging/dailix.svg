@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48">
+  <rect width="48" height="48" rx="10" fill="#2b2a2f"/>
+  <rect x="3" y="12" width="42" height="24" rx="2.5" fill="#3d3b42"/>
+  <g fill="#f5efe6" opacity="0.85">
+    <rect x="6" y="14.5" width="3" height="2" rx="0.6"/><rect x="12" y="14.5" width="3" height="2" rx="0.6"/>
+    <rect x="18" y="14.5" width="3" height="2" rx="0.6"/><rect x="24" y="14.5" width="3" height="2" rx="0.6"/>
+    <rect x="30" y="14.5" width="3" height="2" rx="0.6"/><rect x="36" y="14.5" width="3" height="2" rx="0.6"/>
+    <rect x="6" y="31.5" width="3" height="2" rx="0.6"/><rect x="12" y="31.5" width="3" height="2" rx="0.6"/>
+    <rect x="18" y="31.5" width="3" height="2" rx="0.6"/><rect x="24" y="31.5" width="3" height="2" rx="0.6"/>
+    <rect x="30" y="31.5" width="3" height="2" rx="0.6"/><rect x="36" y="31.5" width="3" height="2" rx="0.6"/>
+  </g>
+  <rect x="5.5" y="19" width="10" height="10" rx="1.5" fill="#6b7f9e"/>
+  <rect x="19" y="18" width="10" height="12" rx="1.5" fill="#d29a5e"/>
+  <rect x="32.5" y="19" width="10" height="10" rx="1.5" fill="#6b7f9e"/>
+  <path d="M21.3 24.3l2.3 2.3 4-4.6" fill="none" stroke="#2b2a2f" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

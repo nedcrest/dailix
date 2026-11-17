@@ -4,17 +4,23 @@
 
 Bringing footage in and choosing it. *Dailies* is the trade's word for a
 day's raw footage, looked through and sorted before the edit: Dailix
-takes it off cards and phones, lets you look through it and mark what's
-worth keeping, files the originals away, and hands the chosen material to
-an editor ([Omnix](https://github.com/nedcrest/omnix-360-studio)). Rust, built the way Omnix is.
+sorts what came off the cards and phones into trips, keeps the originals
+safe in an archive, lets you look through a trip and mark what's worth
+keeping, and hands the chosen material to an editor
+([Omnix](https://github.com/nedcrest/omnix-360-studio)). Rust, built the way Omnix is.
+
+**Download** Dailix for Linux: [the archive with an install script, or an
+AppImage](https://github.com/nedcrest/dailix/releases/latest); install
+[Omnix](https://github.com/nedcrest/omnix-360-studio/releases/latest)
+beside it. Or build both from source, see [Building](#building).
 
 ![Dailix: a trip opened from its card, a day's clips rated with a key each (a green line for a take, amber for a maybe), the filter left with the unrated ones, back to the trip and its «→ Omnix» menu.](docs/img/dailix-hero.gif)
 
-Status: the contact sheet works (Home of trip cards, a trip's page,
-days, rating, segments, flags, the player, «→ Omnix»), on a core with a
-command line; it replaces footage-agent's web contact sheet. A trip holds
-its edits, each with its exports; a new trip is made here.
-Bringing footage in is designed (`docs/INGEST.md`), not built.
+Status: TMP sorted into trips and parts, the originals archived (checked
+by hash) and TMP freed; the contact sheet (Home of trip cards, a trip's
+page, days, rating, segments, flags, the player, «→ Omnix»), on a core
+with a command line. Reading cards and phones straight into TMP is
+designed (`docs/INGEST.md`), not built.
 
 **New here? Read [the guide](https://github.com/nedcrest/omnix-360-studio/blob/main/docs/guide/README.md)**
 (it lives in Omnix's repository, for both programs): installing, a
