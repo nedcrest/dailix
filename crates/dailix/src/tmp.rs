@@ -202,9 +202,12 @@ pub fn filing_line(done: usize, total: usize, trip: &str, now: &str) -> String {
     format!("Copying {} of {total} into {trip}: {now}", done + 1)
 }
 
-/// What a filed video's tile says: the trip, and the trip's parts it's in.
-pub fn went_line(trip: &str, parts: &[&str]) -> String {
-    if parts.is_empty() { format!("✓ {trip}") } else { format!("✓ {trip} · {}", parts.join(", ")) }
+/// What a filed video's tile says, two things apart (the user,
+/// 2026-11-17: «✓ trip» read as «in a part»): it's in the trip's days;
+/// and the parts that hold it, or none.
+pub fn went_lines(trip: &str, parts: &[&str]) -> (String, String) {
+    let part = if parts.is_empty() { "In no part".to_owned() } else { format!("Part: {}", parts.join(", ")) };
+    (format!("✓ In {trip}'s days"), part)
 }
 
 /// The player's share of the sorter's height, kept where both it and the
@@ -487,7 +490,8 @@ mod tests {
     #[test]
     fn the_sorter_says_how_far_filing_is_and_where_a_tile_went() {
         assert_eq!(filing_line(2, 7, "Kos", "DJI_0001.MP4"), "Copying 3 of 7 into Kos: DJI_0001.MP4");
-        assert_eq!((went_line("Kos", &[]), went_line("Kos", &["Rides", "Beach"])), ("✓ Kos".to_owned(), "✓ Kos · Rides, Beach".to_owned()));
+        assert_eq!(went_lines("Kos", &[]), ("✓ In Kos's days".to_owned(), "In no part".to_owned()));
+        assert_eq!(went_lines("Kos", &["Rides", "Beach"]).1, "Part: Rides, Beach");
         assert_eq!((player_share(0.05), player_share(0.4), player_share(0.9)), (0.15, 0.4, 0.75));
     }
 

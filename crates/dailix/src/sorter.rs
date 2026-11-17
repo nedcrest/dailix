@@ -455,14 +455,18 @@ impl App {
         let filed = s.ledger.filed(&r.rel);
         let name = r.path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
         let stage = crate::archive::stage(&s.ledger, &r.rel);
-        let went = match (filed.first(), stage) {
+        // Two lines: in the trip's days, then in which parts (or none).
+        let (went, part, in_part) = match (filed.first(), stage) {
             (Some(f), _) => self.went(f),
             // In the archive, its trip's copy gone since: not new.
-            (None, crate::archive::Stage::Archived) => "✓ in the archive".to_owned(),
-            _ => format!("{:.0} s · new", r.duration),
+            (None, crate::archive::Stage::Archived) => ("✓ In the archive".to_owned(), String::new(), false),
+            _ => (format!("{:.0} s · new", r.duration), String::new(), false),
         };
         let filed = if stage == crate::archive::Stage::New { &[][..] } else { filed };
-        let info = column![text(crate::library::middle(&name, 26)).size(12), text(went).size(11).style(if filed.is_empty() && stage == crate::archive::Stage::New { text::secondary } else { text::success })].spacing(2).width(TILE);
+        let mut info = column![text(crate::library::middle(&name, 26)).size(12), text(went).size(11).style(if filed.is_empty() && stage == crate::archive::Stage::New { text::secondary } else { text::success })].spacing(2).width(TILE);
+        if !part.is_empty() {
+            info = info.push(text(crate::library::middle(&part, 30)).size(11).style(if in_part { text::primary } else { text::secondary }));
+        }
         let picked = s.picked.contains(&i);
         let tile = button(column![picture, info].spacing(4)).padding(4).on_press(Message::Sort(SortMsg::Click(i))).style(move |t, st| {
             let mut b = if picked { button::primary(t, st) } else { button::text(t, st) };
@@ -476,13 +480,19 @@ impl App {
 
     /// Where a filed video went, as its tile says it: the trip's name and
     /// the trip's parts that hold it.
-    fn went(&self, f: &tmp::Filed) -> String {
+    fn went(&self, f: &tmp::Filed) -> (String, String, bool) {
         let root = self.settings.projects.clone().unwrap_or_default().join(&f.trip);
         let key = format!("{}/{}", f.day, f.name);
         let trip = self.trips.iter().find(|t| t.root == root);
         let title = trip.map_or_else(|| dailix_sheet::project::title(&root), |t| t.title.clone());
         let parts: Vec<&str> = trip.map(|t| t.parts.iter().filter(|p| p.clips.contains(&key)).map(|p| p.name.as_str()).collect()).unwrap_or_default();
-        tmp::went_line(&title, &parts)
+        let (days, part) = tmp::went_lines(&title, &parts);
+        (days, part, !parts.is_empty())
+    }
+
+    /// Whether TMP's video `rel` is in a part of a trip it went to.
+    pub(super) fn in_a_part(&self, s: &Sorter, rel: &str) -> bool {
+        s.ledger.filed(rel).iter().any(|f| self.went(f).2)
     }
 
     /// The panel: what the picked become.

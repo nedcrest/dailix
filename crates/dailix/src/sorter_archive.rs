@@ -167,7 +167,8 @@ impl App {
     pub(super) fn day_head<'a>(&'a self, s: &'a Sorter, day: Option<&str>, list: &[usize]) -> Element<'a, Message> {
         let stages = s.stages(list);
         let n = |st: Stage| stages.iter().filter(|x| **x == st).count();
-        let facts = format!("{} · {} · {} filed · {} in the archive", day.unwrap_or("No date"), crate::library::count(list.len(), "video"), n(Stage::Filed) + n(Stage::Archived), n(Stage::Archived));
+        let in_parts = list.iter().filter(|i| self.in_a_part(s, &s.raws[**i].rel)).count();
+        let facts = format!("{} · {} · {} in a trip's days · {in_parts} in a part · {} in the archive", day.unwrap_or("No date"), crate::library::count(list.len(), "video"), n(Stage::Filed) + n(Stage::Archived), n(Stage::Archived));
         let busy = s.busy();
         let step: Option<Element<'a, Message>> = match archive::next(&stages) {
             Next::Archive(k) => Some(match self.sources_place() {
