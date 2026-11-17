@@ -61,6 +61,10 @@ pub struct Sorter {
     pub asking_free: Option<Vec<usize>>,
     /// «Archive all and free TMP» asked about.
     pub asking_all: bool,
+    /// «Remove picked from TMP» asked about (the picked then), and the
+    /// pointer on its button.
+    pub asking_remove: Option<Vec<usize>>,
+    pub remove_hover: bool,
     /// Shift and Ctrl as they are now, for a click on a tile.
     pub mods: iced::keyboard::Modifiers,
 }
@@ -96,6 +100,12 @@ pub enum SortMsg {
     AllAsk,
     AllCancel,
     AllConfirm,
+    /// The picked out of TMP, to the trash: asked, no, yes; the pointer
+    /// on its button (it grows and reddens).
+    RemoveAsk,
+    RemoveCancel,
+    RemoveConfirm,
+    RemoveHover(bool),
     Loaded(PathBuf, Slot),
     Toggle,
     Scrub(f64),
@@ -164,7 +174,7 @@ impl App {
             SortMsg::File => return self.file_picked(),
             SortMsg::FiledOne(said) => return self.filed_one(said),
             m @ (SortMsg::Grip | SortMsg::Drag(_) | SortMsg::Release) => self.sort_grip(m),
-            m @ (SortMsg::Archive(_) | SortMsg::FreeAsk(_) | SortMsg::FreeCancel | SortMsg::FreeConfirm | SortMsg::MovedOne(..) | SortMsg::AllAsk | SortMsg::AllCancel | SortMsg::AllConfirm) => return self.on_archive(m),
+            m @ (SortMsg::Archive(_) | SortMsg::FreeAsk(_) | SortMsg::FreeCancel | SortMsg::FreeConfirm | SortMsg::MovedOne(..) | SortMsg::AllAsk | SortMsg::AllCancel | SortMsg::AllConfirm | SortMsg::RemoveAsk | SortMsg::RemoveCancel | SortMsg::RemoveConfirm | SortMsg::RemoveHover(_)) => return self.on_archive(m),
             m => self.sort_player(m),
         }
         Task::none()
@@ -581,6 +591,7 @@ impl App {
             .push(space().height(18))
             .push(rule::horizontal(1))
             .push(tip(ui::act(format!("Archive all and free TMP ({})", s.raws.len()), ui::Kind::Secondary).width(Length::Fill).on_press_maybe((!s.busy() && !s.raws.is_empty()).then_some(Message::Sort(SortMsg::AllAsk))), text("Every video in TMP into the archive, each checked, then out of TMP (asked first)"), tooltip::Position::Top))
+            .push(super::sorter_archive::remove_button(s))
             .spacing(10)
             .into()
     }

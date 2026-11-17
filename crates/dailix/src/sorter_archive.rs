@@ -22,6 +22,8 @@ pub struct Moving {
     pub free: bool,
     /// Both: each video into the archive, then out of TMP.
     pub both: bool,
+    /// Out of TMP to the trash, archived or not («Remove picked»).
+    pub remove: bool,
     /// The videos themselves, not places in the sorter's list: the list
     /// is read again while a file goes (the audit, 2026-11-17: an index
     /// into a newer, shorter list panicked).
@@ -34,7 +36,8 @@ pub struct Moving {
 impl Moving {
     /// The line under the bar while it goes.
     pub fn line(&self, now: &str) -> String {
-        let verb = match (self.both, self.free) {
+        let verb = match (self.both || self.remove, self.free) {
+            (true, _) if self.remove => "Out of TMP, to the trash",
             (true, _) => "Into the archive and out of TMP",
             (_, true) => "Freeing TMP",
             _ => "Copying into the archive",
@@ -72,7 +75,7 @@ impl App {
 
     pub(super) fn on_archive(&mut self, msg: SortMsg) -> Task<Message> {
         match msg {
-            SortMsg::Archive(list) => return self.start_moving(list, false, false),
+            SortMsg::Archive(list) => return self.start_moving(list, false, false, false),
             SortMsg::AllAsk => {
                 if let Some(s) = &mut self.sorter {
                     s.asking_all = true;
@@ -83,11 +86,30 @@ impl App {
                     s.asking_all = false;
                 }
             }
+            SortMsg::RemoveAsk => {
+                if let Some(s) = self.sorter.as_mut().filter(|s| !s.picked.is_empty()) {
+                    s.asking_remove = Some(s.picked.clone());
+                }
+            }
+            SortMsg::RemoveCancel => {
+                if let Some(s) = &mut self.sorter {
+                    s.asking_remove = None;
+                }
+            }
+            SortMsg::RemoveHover(on) => {
+                if let Some(s) = &mut self.sorter {
+                    s.remove_hover = on;
+                }
+            }
+            SortMsg::RemoveConfirm => {
+                let list = self.sorter.as_mut().and_then(|s| s.asking_remove.take()).unwrap_or_default();
+                return self.start_moving(list, false, true, true);
+            }
             SortMsg::AllConfirm => {
                 let Some(s) = &mut self.sorter else { return Task::none() };
                 s.asking_all = false;
                 let all = (0..s.raws.len()).collect();
-                return self.start_moving(all, false, true);
+                return self.start_moving(all, false, true, false);
             }
             SortMsg::FreeAsk(list) => {
                 if let Some(s) = &mut self.sorter {
@@ -101,7 +123,7 @@ impl App {
             }
             SortMsg::FreeConfirm => {
                 let list = self.sorter.as_mut().and_then(|s| s.asking_free.take()).unwrap_or_default();
-                return self.start_moving(list, true, false);
+                return self.start_moving(list, true, false, false);
             }
             SortMsg::MovedOne(i, done) => return self.moved_one(i, done),
             _ => {}
@@ -111,7 +133,7 @@ impl App {
 
     /// Archiving (or freeing) `list` started: those at the right stage
     /// only, a file at a time.
-    fn start_moving(&mut self, list: Vec<usize>, free: bool, both: bool) -> Task<Message> {
+    fn start_moving(&mut self, list: Vec<usize>, free: bool, both: bool, remove: bool) -> Task<Message> {
         let Some(s) = &mut self.sorter else { return Task::none() };
         if s.busy() {
             return Task::none();
@@ -122,7 +144,7 @@ impl App {
         if queue.is_empty() {
             return Task::none();
         }
-        s.moving = Some(Moving { free, both, total: queue.len(), queue, done: 0, failed: Vec::new() });
+        s.moving = Some(Moving { free, both, remove, total: queue.len(), queue, done: 0, failed: Vec::new() });
         self.move_next()
     }
 
@@ -136,6 +158,13 @@ impl App {
         let failed = |e: &str| archive::Moved { error: Some(e.to_owned()), ..Default::default() };
         let poster = crate::tmp::poster(&tmp.unwrap_or_default(), &raw.rel);
         let already = s.ledger.archived.get(&raw.rel).cloned();
+        // Out of TMP whatever the archive holds, as asked (its poster too).
+        if m.remove {
+            return Task::perform(blocking(move || match trash::delete_all([raw.path.clone(), poster].into_iter().filter(|p| p.exists())) {
+                Ok(()) => archive::Moved { freed: true, ..Default::default() },
+                Err(e) => archive::Moved { error: Some(format!("{}: {e}", raw.rel)), ..Default::default() },
+            }), move |m| Message::Sort(SortMsg::MovedOne(rel.clone(), m)));
+        }
         if m.free {
             let Some(archived) = already else { return Task::done(Message::Sort(SortMsg::MovedOne(rel, failed("not in the archive")))) };
             return Task::perform(blocking(move || match archive::free_one(&raw.path, &poster, &archived) {
@@ -194,6 +223,7 @@ impl App {
         let Some(m) = self.sorter.as_mut().and_then(|s| s.moving.take()) else { return Task::none() };
         let ok = m.done - m.failed.len();
         let did = match (m.both, m.free) {
+            _ if m.remove => format!("{} out of TMP, to the trash", crate::library::count(ok, "video")),
             (true, _) => format!("{} into the archive, checked, and out of TMP", crate::library::count(ok, "video")),
             (_, true) => format!("TMP freed of {}", crate::library::count(ok, "video")),
             _ => format!("{} copied into the archive and checked", crate::library::count(ok, "video")),
@@ -203,7 +233,7 @@ impl App {
             self.error = Some(format!("{} didn't: {first}", crate::library::count(m.failed.len(), "video")));
         }
         self.refresh_home();
-        if m.free || m.both {
+        if m.free || m.both || m.remove {
             if let Some(t) = &self.settings.tmp {
                 crate::tmp::drop_empty_folders(t);
             }
@@ -228,6 +258,33 @@ impl App {
         });
         let free = (to_free > 0).then(|| tip(ui::small(format!("Free TMP ({to_free})"), ui::Kind::Secondary).on_press_maybe((!busy).then(|| Message::Sort(SortMsg::FreeAsk(list.to_vec())))), text("To the trash: the archive holds them, checked again before each goes"), tooltip::Position::Bottom));
         row![text(facts).size(14).style(text::secondary)].push(archive).push(free).spacing(12).align_y(iced::Alignment::Center).into()
+    }
+
+    /// The question before the picked leave TMP for the trash: how many,
+    /// how big, and, in red, how many the archive doesn't hold (their only
+    /// copy may be this one).
+    pub(super) fn remove_layer(&self) -> Element<'_, Message> {
+        let Some((s, list)) = self.sorter.as_ref().and_then(|s| s.asking_remove.as_ref().map(|l| (s, l))) else { return space().into() };
+        let bytes: u64 = list.iter().filter_map(|i| std::fs::metadata(&s.raws[*i].path).ok()).map(|m| m.len()).sum();
+        let (not_archived, _) = archive::counts(&s.stages(list));
+        let said = format!("{} ({:.1} GB) go from TMP to the trash, restorable from there. Their copies in trips and in the archive stay.", crate::library::count(list.len(), "video"), bytes as f64 / 1e9);
+        let mut card = column![text("Remove the picked from TMP?").size(20), text(said).size(14).style(text::secondary)].spacing(ui::DIALOG_GAP);
+        if not_archived > 0 {
+            let said = match (not_archived, list.len()) {
+                (1, 1) => "It isn't in the archive: what's in TMP may be its only copy.".to_owned(),
+                (n, all) if n == all => "None of them is in the archive: what's in TMP may be their only copy.".to_owned(),
+                (1, _) => "One of them isn't in the archive: what's in TMP may be its only copy.".to_owned(),
+                (n, _) => format!("{n} of them aren't in the archive: what's in TMP may be their only copy."),
+            };
+            card = card.push(text(said).size(14).style(text::danger));
+        }
+        let buttons = row![
+            space().width(Length::Fill),
+            ui::act("Cancel", ui::Kind::Secondary).on_press(Message::Sort(SortMsg::RemoveCancel)),
+            ui::act(format!("Remove {}", crate::library::count(list.len(), "video")), ui::Kind::Danger).on_press(Message::Sort(SortMsg::RemoveConfirm)),
+        ]
+        .spacing(8);
+        modal(ui::dialog(card.push(buttons), ui::DIALOG_WIDTH), Message::Sort(SortMsg::RemoveCancel))
     }
 
     /// The question before every video goes into the archive and out of
@@ -300,6 +357,28 @@ impl App {
     }
 }
 
+/// «Remove picked from TMP»: a muted light red at rest; under the pointer
+/// a deep burgundy, 5 % bigger (the user, 2026-11-17).
+pub fn remove_button(s: &Sorter) -> Element<'_, Message> {
+    let (hover, n) = (s.remove_hover, s.picked.len());
+    let grow = if hover { 1.05 } else { 1.0 };
+    let label = text(format!("Remove picked from TMP ({n})")).size(14.0 * grow).width(Length::Fill).align_x(iced::Alignment::Center);
+    let button = iced::widget::button(label)
+        .width(Length::Fill)
+        .padding([6.0 * grow, 12.0 * grow])
+        .on_press_maybe((n > 0 && !s.busy()).then_some(Message::Sort(SortMsg::RemoveAsk)))
+        .style(move |_: &iced::Theme, status| {
+            let (bg, fg) = match status {
+                iced::widget::button::Status::Hovered | iced::widget::button::Status::Pressed => (iced::Color::from_rgb8(0x8b, 0x1a, 0x2b), iced::Color::WHITE),
+                iced::widget::button::Status::Disabled => (iced::Color::from_rgba8(0xd9, 0x8a, 0x8a, 0.15), iced::Color::from_rgba8(0xff, 0xff, 0xff, 0.35)),
+                iced::widget::button::Status::Active => (iced::Color::from_rgba8(0xd9, 0x8a, 0x8a, 0.35), iced::Color::from_rgb8(0xf2, 0xd4, 0xd4)),
+            };
+            iced::widget::button::Style { background: Some(bg.into()), text_color: fg, border: iced::Border { radius: 6.0.into(), ..Default::default() }, ..Default::default() }
+        });
+    let area = iced::widget::mouse_area(button).on_enter(Message::Sort(SortMsg::RemoveHover(true))).on_exit(Message::Sort(SortMsg::RemoveHover(false)));
+    tip(area, text("The picked out of TMP, to the trash (asked first)"), tooltip::Position::Top)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -308,7 +387,7 @@ mod tests {
     fn the_next_step_is_said_in_a_line() {
         assert_eq!(next_line(Next::Archive(2)), "Next: 2 videos into the archive, then TMP can let them go.");
         assert_eq!(next_line(Next::Done), "Nothing left to do with these.");
-        let m = Moving { free: true, both: false, queue: VecDeque::new(), total: 4, done: 1, failed: Vec::new() };
+        let m = Moving { free: true, both: false, remove: false, queue: VecDeque::new(), total: 4, done: 1, failed: Vec::new() };
         assert_eq!(m.line("card/a.MP4"), "Freeing TMP: 2 of 4: card/a.MP4");
     }
 }

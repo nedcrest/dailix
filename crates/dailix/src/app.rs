@@ -759,10 +759,10 @@ impl App {
             (self.help, self.about_open, self.menu, self.choosing, self.new_trip, self.settings_open, self.deleting, self.part_removing) = (false, false, None, None, None, None, None, None);
         }
         // The sorter's question before TMP lets videos go.
-        let free = self.sorter.as_mut().filter(|s| s.asking_free.is_some() || s.asking_all);
+        let free = self.sorter.as_mut().filter(|s| s.asking_free.is_some() || s.asking_all || s.asking_remove.is_some());
         if let Some(s) = free {
             if esc {
-                (s.asking_free, s.asking_all) = (None, false);
+                (s.asking_free, s.asking_all, s.asking_remove) = (None, false, None);
             }
             return true;
         }
@@ -902,7 +902,7 @@ impl App {
     /// always there (empty when hidden), so the window under it keeps its
     /// state (a scroll, a field's focus) when the list comes up.
     fn view(&self) -> Element<'_, Message> {
-        iced::widget::stack![self.page(), self.menu_layer(), self.settings_layer(), self.new_trip_layer(), self.choose_layer(), self.delete_layer(), self.part_remove_layer(), self.free_layer(), self.all_layer(), self.help_layer(), self.about_layer(), self.how_layer()].into()
+        iced::widget::stack![self.page(), self.menu_layer(), self.settings_layer(), self.new_trip_layer(), self.choose_layer(), self.delete_layer(), self.part_remove_layer(), self.free_layer(), self.all_layer(), self.remove_layer(), self.help_layer(), self.about_layer(), self.how_layer()].into()
     }
 
     fn help_layer(&self) -> Element<'_, Message> {
