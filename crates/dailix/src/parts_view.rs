@@ -37,6 +37,13 @@ pub enum PartMsg {
     /// part and the videos only it holds.
     RemoveCancel,
     RemoveConfirm(bool),
+    /// The sheet's picked group: into a part, out of one, into a new one
+    /// (its name typed), or let go.
+    GroupInto(String),
+    GroupOut(String),
+    GroupName(String),
+    GroupNew,
+    GroupClear,
     /// The pointer on a part's card, or a click on it (opened in the sheet).
     Card(PathBuf, String, omnix::cards::view::Event),
 }
@@ -141,6 +148,7 @@ impl App {
                 self.part_removing = Some(Removal { root, part, gone, kept });
             }
             PartMsg::RemoveCancel => self.part_removing = None,
+            m @ (PartMsg::GroupInto(_) | PartMsg::GroupOut(_) | PartMsg::GroupName(_) | PartMsg::GroupNew | PartMsg::GroupClear) => self.on_group(m),
             PartMsg::RemoveConfirm(videos) => {
                 let Some(r) = self.part_removing.take() else { return Task::none() };
                 if videos && let Err(e) = crate::delete::trash_clips(&r.root, &r.gone) {
@@ -177,6 +185,71 @@ impl App {
             }
         }
         Task::none()
+    }
+
+    /// A tile clicked in the sheet: alone, the group is it; with Ctrl or
+    /// Shift, the group grows as the sorter's does (`tmp::click`).
+    pub(super) fn group_click(&mut self, key: &str) {
+        let order = self.order();
+        let Some(at) = order.iter().position(|k| k == key) else { return };
+        // A group starts from the clip already in hand, as a file manager's does.
+        if self.group.is_empty()
+            && let Some(sel) = self.selected.clone().filter(|_| self.mods.shift() || self.mods.command())
+        {
+            self.group_anchor = order.iter().position(|k| *k == sel);
+            self.group = vec![sel];
+        }
+        let picked: Vec<usize> = self.group.iter().filter_map(|g| order.iter().position(|k| k == g)).collect();
+        let all: Vec<usize> = (0..order.len()).collect();
+        let (picked, anchor) = crate::tmp::click(&picked, self.group_anchor, at, &all, self.mods.shift(), self.mods.command());
+        self.group = picked.into_iter().map(|i| order[i].clone()).collect();
+        self.group_anchor = anchor;
+    }
+
+    /// The group put into a part (made first if new), or taken out.
+    fn on_group(&mut self, msg: PartMsg) {
+        if self.project.is_none() {
+            return;
+        }
+        let clips = self.group.clone();
+        let n = crate::library::count(clips.len(), "clip");
+        let (ops, said) = match msg {
+            PartMsg::GroupInto(part) => (vec![Op::Part(PartOp::Put { part: part.clone(), clips })], format!("{n} into «{part}».")),
+            PartMsg::GroupOut(part) => (vec![Op::Part(PartOp::Take { part: part.clone(), clips })], format!("{n} out of «{part}»; they stay in the trip.")),
+            PartMsg::GroupName(typed) => {
+                self.group_part = typed;
+                return;
+            }
+            PartMsg::GroupNew => {
+                let known: Vec<String> = self.project.as_ref().map(|p| p.sheet.parts.iter().map(|x| x.name.clone()).collect()).unwrap_or_default();
+                let name = std::mem::take(&mut self.group_part);
+                (crate::tmp::part_ops(&known, std::slice::from_ref(&name), &clips), format!("{n} into «{}».", name.trim()))
+            }
+            _ => {
+                (self.group, self.group_anchor) = (Vec::new(), None);
+                return;
+            }
+        };
+        if !ops.is_empty() && self.apply_ops(ops).is_ok() {
+            self.notice = Some(said);
+        }
+        self.refresh_home();
+    }
+
+    /// The bar over the sheet while a group is picked: into a part, a new
+    /// part, out of the part shown, let go.
+    pub(super) fn group_bar<'a>(&'a self, parts: &'a [dailix_sheet::Part]) -> Option<Element<'a, Message>> {
+        if self.group.len() < 2 {
+            return None;
+        }
+        let to = |m: PartMsg| Message::Part(m);
+        let names: Vec<String> = parts.iter().map(|p| p.name.clone()).collect();
+        let into = pick_list(names, None::<String>, |n| Message::Part(PartMsg::GroupInto(n))).placeholder("Into part…").text_size(13);
+        let new = text_input("New part", &self.group_part).size(13).width(160).on_input(|t| Message::Part(PartMsg::GroupName(t))).on_submit(to(PartMsg::GroupNew));
+        let add = ui::small("Add", ui::Kind::Secondary).on_press_maybe((!self.group_part.trim().is_empty()).then(|| to(PartMsg::GroupNew)));
+        let out = self.part.clone().map(|p| tip(ui::small(format!("Out of «{p}»"), ui::Kind::Secondary).on_press(Message::Part(PartMsg::GroupOut(p.clone()))), text("Take the picked out of the part shown (they stay in the trip)"), tooltip::Position::Bottom));
+        let clear = tip(ui::small("✕", ui::Kind::Quiet).on_press(to(PartMsg::GroupClear)), text("Let the group go"), tooltip::Position::Bottom);
+        Some(row![text(format!("{} picked", crate::library::count(self.group.len(), "clip"))).size(13), into, new, add].push(out).push(clear).spacing(8).align_y(Alignment::Center).into())
     }
 
     /// The trip's clips that never leave it with a part: those an edit

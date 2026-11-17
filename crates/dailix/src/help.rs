@@ -22,6 +22,7 @@ pub const GROUPS: [(&str, &[(&str, &str)]); 6] = [
         "Clips",
         &[
             ("click, ← →", "pick a clip"),
+            ("Ctrl+click / Shift+click", "a group of clips (from the one in hand): into a part, a new part, out of the part shown"),
             ("P", "take (✓), then the next"),
             ("?", "think about it (?), then the next"),
             ("X", "junk (✕), then the next"),

@@ -179,7 +179,9 @@ impl App {
             tip(ui::small(format!("{} {}", f.label(), n[i]), kind).on_press(Message::Filter(*f)), text(f.hint()), tooltip::Position::Bottom)
         };
         let linked = iced::widget::Row::with_children(Filter::ALL.iter().enumerate().map(one)).spacing(1);
-        row![text("Show").size(13).style(text::secondary), linked].push(self.part_picker(&p.sheet.parts)).spacing(8).align_y(Alignment::Center).into()
+        let filters = row![text("Show").size(13).style(text::secondary), linked].push(self.part_picker(&p.sheet.parts)).spacing(8).align_y(Alignment::Center);
+        // A group picked (Ctrl or Shift and a click): what can be done with it.
+        column![filters].push(self.group_bar(&p.sheet.parts)).spacing(6).into()
     }
 
     /// A day: its date, how far it's rated, its story, its clips shown.
@@ -241,6 +243,7 @@ impl App {
             container(text(if c.path.is_file() { "…" } else { "missing" }).size(14)).width(TILE).height(h).center_x(TILE).center_y(h).style(container::rounded_box).into()
         };
         let picked = self.selected.as_deref() == Some(c.key.as_str());
+        let grouped = self.group.len() > 1 && self.group.contains(&c.key);
         let near = picked || self.tile_hover.as_deref() == Some(c.key.as_str());
         let rate = |r: u8, label: &'static str, hint: &'static str| -> Element<'a, Message> {
             let kind = if rating == Some(r) { ui::Kind::Primary } else { ui::Kind::Secondary };
@@ -282,6 +285,8 @@ impl App {
             let mut s = container::rounded_box(t);
             if picked {
                 s.border = iced::Border { color: t.extended_palette().primary.strong.color, width: 2.0, radius: s.border.radius };
+            } else if grouped {
+                s.border = iced::Border { color: t.extended_palette().primary.weak.color, width: 2.0, radius: s.border.radius };
             }
             s
         });

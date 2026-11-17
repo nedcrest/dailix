@@ -240,9 +240,9 @@ pub fn new_count<'a>(ledger: &Ledger, rels: impl IntoIterator<Item = &'a str>) -
 /// shown): alone, it alone; with Ctrl, it added or taken away; with Shift,
 /// every tile from the last one clicked (`anchor`) to it. The picked in
 /// the order shown, and the new anchor.
-pub fn click(picked: &[usize], anchor: Option<usize>, at: usize, order: &[usize], shift: bool, ctrl: bool) -> (Vec<usize>, Option<usize>) {
-    let place = |i: usize| order.iter().position(|o| *o == i);
-    let in_order = |set: Vec<usize>| order.iter().copied().filter(|o| set.contains(o)).collect::<Vec<_>>();
+pub fn click<T: Copy + PartialEq>(picked: &[T], anchor: Option<T>, at: T, order: &[T], shift: bool, ctrl: bool) -> (Vec<T>, Option<T>) {
+    let place = |i: T| order.iter().position(|o| *o == i);
+    let in_order = |set: Vec<T>| order.iter().copied().filter(|o| set.contains(o)).collect::<Vec<_>>();
     match (shift, anchor.and_then(place), place(at)) {
         (true, Some(a), Some(b)) => {
             let (lo, hi) = (a.min(b), a.max(b));

@@ -172,6 +172,14 @@ struct App {
     trip_folded: HashSet<&'static str>,
     /// A part asked about before it goes (with its videos or not).
     part_removing: Option<parts_view::Removal>,
+    /// Shift and Ctrl as they are now.
+    mods: iced::keyboard::Modifiers,
+    /// A group of the sheet's clips picked (Ctrl or Shift and a click),
+    /// to put into a part at once; where Shift runs from; a new part's
+    /// name typed for it.
+    group: Vec<String>,
+    group_anchor: Option<usize>,
+    group_part: String,
     /// «How Dailix works» shown.
     how_open: bool,
 }
@@ -401,7 +409,7 @@ impl App {
             Start::NewTrip => (None, true),
         };
         let settings = Settings::load();
-        let mut app = App { project: None, error: None, notice: None, making: HashSet::new(), voice_makes: HashSet::new(), drafts: HashMap::new(), dirty: HashSet::new(), selected: None, pane: pane::Pane::default(), height: 920.0, scale: settings.scale.unwrap_or(1.0), width: 1500.0, pane_share: settings.pane_share.unwrap_or(pane::SHARE), grip: None, help: false, settings_open: None, at_home: true, card_hover: None, edit_frames: Default::default(), trips: Vec::new(), places: Vec::new(), naming: None, choosing: None, deleting: None, trip_open: None, about: Default::default(), new_trip: None, menu: None, about_open: false, adding: HashSet::new(), change_error: None, close_anyway: false, filter: Default::default(), tile_hover: None, sorter: None, tmp_new: 0, part: None, part_naming: None, trip_folded: HashSet::new(), part_removing: None, how_open: false, folded: HashSet::new(), story_edits: 0, days_list: true, making_edits: HashSet::new(), settings };
+        let mut app = App { project: None, error: None, notice: None, making: HashSet::new(), voice_makes: HashSet::new(), drafts: HashMap::new(), dirty: HashSet::new(), selected: None, pane: pane::Pane::default(), height: 920.0, scale: settings.scale.unwrap_or(1.0), width: 1500.0, pane_share: settings.pane_share.unwrap_or(pane::SHARE), grip: None, help: false, settings_open: None, at_home: true, card_hover: None, edit_frames: Default::default(), trips: Vec::new(), places: Vec::new(), naming: None, choosing: None, deleting: None, trip_open: None, about: Default::default(), new_trip: None, menu: None, about_open: false, adding: HashSet::new(), change_error: None, close_anyway: false, filter: Default::default(), tile_hover: None, sorter: None, tmp_new: 0, part: None, part_naming: None, trip_folded: HashSet::new(), part_removing: None, mods: Default::default(), group: Vec::new(), group_anchor: None, group_part: String::new(), how_open: false, folded: HashSet::new(), story_edits: 0, days_list: true, making_edits: HashSet::new(), settings };
         // A project named opens; else where the window was left (home on
         // the first run, or when it was left there).
         app.refresh_home();
@@ -464,6 +472,7 @@ impl App {
     fn load(&mut self, root: PathBuf) -> Task<Message> {
         // Keys are day/file: a hover from another trip could match a tile.
         self.tile_hover = None;
+        (self.group, self.group_anchor) = (Vec::new(), None);
         // A story that couldn't be saved stays on the page, its error said.
         if !self.save_typed() {
             self.at_home = false;
@@ -556,13 +565,16 @@ impl App {
         let size = iced::Subscription::batch([size, iced::window::close_requests().map(Message::Closing)]);
         // A hovered card's tiles change, a screen frame at a time.
         let size = if self.card_moving() { iced::Subscription::batch([size, iced::window::frames().map(|_| Message::CardTick)]) } else { size };
-        // The sorter's: Shift and Ctrl for a click, its player's frames.
+        // Shift and Ctrl as they are, for a click on a tile (the sorter's
+        // and the sheet's: a group picked).
+        let mods = iced::event::listen_with(|e, _, _| match e {
+            iced::Event::Keyboard(iced::keyboard::Event::ModifiersChanged(m)) => Some(Message::Sort(sorter::SortMsg::Mods(m))),
+            _ => None,
+        });
+        let keys = iced::Subscription::batch([keys, mods]);
+        // The sorter's player's frames, and its edge dragged.
         let keys = match &self.sorter {
             Some(s) => {
-                let mods = iced::event::listen_with(|e, _, _| match e {
-                    iced::Event::Keyboard(iced::keyboard::Event::ModifiersChanged(m)) => Some(Message::Sort(sorter::SortMsg::Mods(m))),
-                    _ => None,
-                });
                 let frames = s.viewer.as_ref().is_some_and(omnix::viewer::Viewer::busy).then(|| iced::window::frames().map(|_| Message::Sort(sorter::SortMsg::Tick)));
                 // The pointer, only while the edge under the player is held.
                 let grip = s.grip.is_some().then(|| {
@@ -572,7 +584,7 @@ impl App {
                         _ => None,
                     })
                 });
-                iced::Subscription::batch([keys, mods].into_iter().chain(frames).chain(grip))
+                iced::Subscription::batch([keys].into_iter().chain(frames).chain(grip))
             }
             None => keys,
         };
@@ -671,7 +683,10 @@ impl App {
             return Task::none();
         }
         match message {
-            Message::Select(key) => return self.select(key),
+            Message::Select(key) => {
+                self.group_click(&key);
+                return self.select(key);
+            }
             Message::Pane(msg) => return self.on_pane(msg),
             Message::Sort(msg) => return self.on_sort(msg),
             Message::Part(msg) => return self.on_part(msg),

@@ -149,6 +149,7 @@ impl App {
             SortMsg::Posters => {}
             SortMsg::Click(i) => return self.sort_click(i),
             SortMsg::Mods(m) => {
+                self.mods = m;
                 if let Some(s) = &mut self.sorter {
                     s.mods = m;
                 }
