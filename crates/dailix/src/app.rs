@@ -663,6 +663,13 @@ impl App {
     }
 
     fn update(&mut self, message: Message) -> Task<Message> {
+        // The TMP sorter isn't left while it files, archives or frees: the
+        // rest of its queue was dropped without a word (the audit,
+        // 2026-11-17).
+        if leaves_page(&message) && self.sorter.as_ref().is_some_and(sorter::Sorter::busy) {
+            self.error = Some("Wait till TMP's files are done (the line above says how far).".into());
+            return Task::none();
+        }
         match message {
             Message::Select(key) => return self.select(key),
             Message::Pane(msg) => return self.on_pane(msg),
@@ -942,6 +949,11 @@ impl App {
             None => page.push(list).into(),
         }
     }
+}
+
+/// Whether `message` goes to another page.
+fn leaves_page(message: &Message) -> bool {
+    matches!(message, Message::Home | Message::OpenTrip(_) | Message::OpenDay(..) | Message::Opened(Some(_)) | Message::Back)
 }
 
 fn rating_value(r: Rating) -> u8 {

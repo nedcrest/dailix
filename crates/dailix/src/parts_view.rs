@@ -71,13 +71,15 @@ pub struct Removal {
 }
 
 /// The clips of part `part` that can leave the trip with it: in no other
-/// part, and nothing the user did to them in the sheet (a rating, a note,
-/// a mark); and how many of its clips stay.
-pub fn removable(sheet: &dailix_sheet::Sheet, part: &str) -> (Vec<String>, usize) {
+/// part, nothing the user did to them in the sheet (a rating, a note, a
+/// mark), and not one `keep` holds (an edit uses it, or its original is
+/// in neither TMP nor the archive, so this copy may be the only one: the
+/// audit, 2026-11-17); and how many of its clips stay.
+pub fn removable(sheet: &dailix_sheet::Sheet, part: &str, keep: impl Fn(&str) -> bool) -> (Vec<String>, usize) {
     let Some(p) = sheet.part(part) else { return (Vec::new(), 0) };
     let untouched = |k: &String| sheet.clips.get(k).is_none_or(|c| c.rating.is_none() && c.note.is_empty() && c.marks.is_empty());
     let elsewhere = |k: &String| sheet.parts.iter().any(|o| !dailix_sheet::parts::same_name(&o.name, part) && o.clips.contains(k));
-    let gone: Vec<String> = p.clips.iter().filter(|k| untouched(k) && !elsewhere(k)).cloned().collect();
+    let gone: Vec<String> = p.clips.iter().filter(|k| untouched(k) && !elsewhere(k) && !keep(k)).cloned().collect();
     let kept = p.clips.len() - gone.len();
     (gone, kept)
 }
@@ -134,7 +136,8 @@ impl App {
             }
             PartMsg::Remove(root, part) => {
                 let sheet = dailix_sheet::Store::new(dailix_sheet::Layout::new(&root).sheet()).read().ok().and_then(|d| d.sheet().ok()).unwrap_or_default();
-                let (gone, kept) = removable(&sheet, &part);
+                let keep = self.clips_to_keep(&root);
+                let (gone, kept) = removable(&sheet, &part, |k| keep.contains(k));
                 self.part_removing = Some(Removal { root, part, gone, kept });
             }
             PartMsg::RemoveCancel => self.part_removing = None,
@@ -174,6 +177,21 @@ impl App {
             }
         }
         Task::none()
+    }
+
+    /// The trip's clips that never leave it with a part: those an edit
+    /// of it uses, and those whose original is neither in TMP (its
+    /// ledger) nor in the archive (`<Sources>/<trip>/<day>/<name>`).
+    fn clips_to_keep(&self, root: &std::path::Path) -> std::collections::HashSet<String> {
+        let layout = dailix_sheet::Layout::new(root);
+        let key = |p: &std::path::Path| p.strip_prefix(layout.footage()).ok().map(|r| r.components().map(|c| c.as_os_str().to_string_lossy()).collect::<Vec<_>>().join("/"));
+        let mut keep: std::collections::HashSet<String> = dailix_sheet::project::edits(root).iter().flat_map(|e| omnix::from_sheet::clips_of_edit(e)).filter_map(|p| key(&p)).collect();
+        let trip = root.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+        let in_tmp: std::collections::HashSet<String> = self.settings.tmp.as_deref().map(crate::tmp::Ledger::load).map(|l| l.files.values().flatten().filter(|f| f.trip == trip).map(|f| format!("{}/{}", f.day, f.name)).collect()).unwrap_or_default();
+        let sources = self.settings.place(crate::settings::PlaceKind::Sources);
+        let footage = crate::library::clip_keys(root);
+        keep.extend(footage.into_iter().filter(|k| !in_tmp.contains(k) && !sources.as_ref().is_some_and(|s| s.join(&trip).join(k).is_file())));
+        keep
     }
 
     /// `op` applied to the parts of the trip at `root` (open in the sheet
@@ -234,7 +252,7 @@ impl App {
         let to = |m: PartMsg| Message::Part(m);
         let mut said = format!("Its videos can stay in the trip, or leave it with the part (to the trash, restorable): {} would.", crate::library::count(r.gone.len(), "video"));
         if r.kept > 0 {
-            said += &format!(" {} stay either way: in another part, or rated, noted or marked.", crate::library::count(r.kept, "video"));
+            said += &format!(" {} stay either way: in another part, rated, noted or marked, used by an edit, or with no copy in TMP or the archive.", crate::library::count(r.kept, "video"));
         }
         said += " A video that leaves the trip is new in TMP again, if TMP still has it.";
         let buttons = row![
@@ -281,8 +299,10 @@ mod tests {
             "clips": {"2026-08-21/rated.MP4": {"rating": 2}, "2026-08-21/marked.MP4": {"marks": [{"t": 1, "end": 3}]}, "2026-08-21/seen.MP4": {"rating": null, "note": "", "marks": []}},
             "parts": [{"name": "Walking", "clips": ["2026-08-21/a.MP4", "2026-08-21/rated.MP4", "2026-08-21/marked.MP4", "2026-08-21/both.MP4", "2026-08-21/seen.MP4"]},
                       {"name": "Beach", "clips": ["2026-08-21/both.MP4"]}]}"#).unwrap();
-        assert_eq!(removable(&sheet, "walking"), (vec!["2026-08-21/a.MP4".to_owned(), "2026-08-21/seen.MP4".to_owned()], 3));
-        assert_eq!(removable(&sheet, "Sea"), (Vec::new(), 0));
+        assert_eq!(removable(&sheet, "walking", |_| false), (vec!["2026-08-21/a.MP4".to_owned(), "2026-08-21/seen.MP4".to_owned()], 3));
+        // One an edit uses, or whose only copy is the trip's, stays.
+        assert_eq!(removable(&sheet, "walking", |k| k.ends_with("seen.MP4")), (vec!["2026-08-21/a.MP4".to_owned()], 4));
+        assert_eq!(removable(&sheet, "Sea", |_| false), (Vec::new(), 0));
     }
 
     #[test]

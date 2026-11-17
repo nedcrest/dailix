@@ -20,7 +20,10 @@ use std::path::PathBuf;
 #[derive(Debug, Clone)]
 pub struct Moving {
     pub free: bool,
-    pub queue: VecDeque<usize>,
+    /// The videos themselves, not places in the sorter's list: the list
+    /// is read again while a file goes (the audit, 2026-11-17: an index
+    /// into a newer, shorter list panicked).
+    pub queue: VecDeque<crate::tmp::Raw>,
     pub total: usize,
     pub done: usize,
     pub failed: Vec<String>,
@@ -37,6 +40,12 @@ impl Moving {
 impl Sorter {
     pub fn stages(&self, list: &[usize]) -> Vec<Stage> {
         list.iter().map(|i| archive::stage(&self.ledger, &self.raws[*i].rel)).collect()
+    }
+
+    /// Filing, archiving or freeing under way: one at a time, and the
+    /// sorter isn't left meanwhile (the audit: leaving dropped the rest).
+    pub fn busy(&self) -> bool {
+        self.filing.is_some() || self.moving.is_some()
     }
 }
 
@@ -82,11 +91,11 @@ impl App {
     /// only, a file at a time.
     fn start_moving(&mut self, list: Vec<usize>, free: bool) -> Task<Message> {
         let Some(s) = &mut self.sorter else { return Task::none() };
-        if s.moving.is_some() || s.filing.is_some() {
+        if s.busy() {
             return Task::none();
         }
         let want = if free { Stage::Archived } else { Stage::Filed };
-        let queue: VecDeque<usize> = list.into_iter().filter(|i| archive::stage(&s.ledger, &s.raws[*i].rel) == want).collect();
+        let queue: VecDeque<crate::tmp::Raw> = list.into_iter().filter_map(|i| s.raws.get(i)).filter(|r| archive::stage(&s.ledger, &r.rel) == want).cloned().collect();
         if queue.is_empty() {
             return Task::none();
         }
@@ -98,40 +107,44 @@ impl App {
         let (tmp, sources) = (self.settings.tmp.clone(), self.sources_place());
         let Some(s) = &mut self.sorter else { return Task::none() };
         let Some(m) = &mut s.moving else { return Task::none() };
-        let Some(i) = m.queue.pop_front() else { return self.moved_all() };
-        let raw = s.raws[i].clone();
+        let Some(raw) = m.queue.pop_front() else { return self.moved_all() };
+        let rel = raw.rel.clone();
         self.notice = Some(m.line(&raw.rel));
         if m.free {
-            let Some(archived) = s.ledger.archived.get(&raw.rel).cloned() else { return Task::done(Message::Sort(SortMsg::MovedOne(i, Err("not in the archive".into())))) };
+            let Some(archived) = s.ledger.archived.get(&raw.rel).cloned() else { return Task::done(Message::Sort(SortMsg::MovedOne(rel, Err("not in the archive".into())))) };
             let poster = crate::tmp::poster(&tmp.unwrap_or_default(), &raw.rel);
-            return Task::perform(blocking(move || archive::free_one(&raw.path, &poster, &archived).map(|()| None)), move |r| Message::Sort(SortMsg::MovedOne(i, r)));
+            return Task::perform(blocking(move || archive::free_one(&raw.path, &poster, &archived).map(|()| None)), move |r| Message::Sort(SortMsg::MovedOne(rel.clone(), r)));
         }
         let (Some(sources), Some(filed)) = (sources, s.ledger.filed(&raw.rel).first().cloned()) else {
-            return Task::done(Message::Sort(SortMsg::MovedOne(i, Err("the archive (Sources) isn't set, or isn't there".into()))));
+            return Task::done(Message::Sort(SortMsg::MovedOne(rel, Err("the archive (Sources) isn't set, or isn't there".into()))));
         };
-        Task::perform(blocking(move || archive::archive_one(&raw.path, &filed, &sources).map(Some)), move |r| Message::Sort(SortMsg::MovedOne(i, r)))
+        Task::perform(blocking(move || archive::archive_one(&raw.path, &filed, &sources).map(Some)), move |r| Message::Sort(SortMsg::MovedOne(rel.clone(), r)))
     }
 
     /// One done: an archived copy written into the ledger (before the next,
     /// so a stop midway loses nothing), the next started.
-    fn moved_one(&mut self, i: usize, done: Result<Option<archive::Archived>, String>) -> Task<Message> {
-        let tmp = self.settings.tmp.clone();
+    fn moved_one(&mut self, rel: String, done: Result<Option<archive::Archived>, String>) -> Task<Message> {
+        let tmp = self.settings.tmp.clone().unwrap_or_default();
         let Some(s) = &mut self.sorter else { return Task::none() };
-        let rel = s.raws[i].rel.clone();
         let Some(m) = &mut s.moving else { return Task::none() };
         m.done += 1;
         match done {
-            Ok(Some(a)) => {
-                if let Some(t) = &tmp {
-                    let mut ledger = crate::tmp::Ledger::load(t);
-                    ledger.archived.insert(rel.clone(), a.clone());
-                    if let Err(e) = ledger.save(t) {
-                        m.failed.push(format!("{rel}: the ledger: {e}"));
-                    }
+            // Archived: said in the ledger before the next.
+            Ok(Some(a)) => match crate::tmp::Ledger::update(&tmp, |l| {
+                l.archived.insert(rel.clone(), a.clone());
+            }) {
+                Ok(()) => {
+                    s.ledger.archived.insert(rel, a);
                 }
-                s.ledger.archived.insert(rel, a);
+                Err(e) => m.failed.push(format!("{rel}: the ledger: {e}")),
+            },
+            // Freed: forgotten, so its place can hold another video.
+            Ok(None) => {
+                if let Err(e) = crate::tmp::Ledger::update(&tmp, |l| l.forget(&rel)) {
+                    m.failed.push(format!("{rel}: the ledger: {e}"));
+                }
+                s.ledger.forget(&rel);
             }
-            Ok(None) => {}
             Err(e) => m.failed.push(e),
         }
         self.move_next()
@@ -155,7 +168,7 @@ impl App {
         let stages = s.stages(list);
         let n = |st: Stage| stages.iter().filter(|x| **x == st).count();
         let facts = format!("{} · {} · {} filed · {} in the archive", day.unwrap_or("No date"), crate::library::count(list.len(), "video"), n(Stage::Filed) + n(Stage::Archived), n(Stage::Archived));
-        let busy = s.moving.is_some() || s.filing.is_some();
+        let busy = s.busy();
         let step: Option<Element<'a, Message>> = match archive::next(&stages) {
             Next::Archive(k) => Some(match self.sources_place() {
                 Some(_) => tip(ui::small(format!("Into the archive ({k})"), ui::Kind::Primary).on_press_maybe((!busy).then(|| Message::Sort(SortMsg::Archive(list.to_vec())))), text("Copied into the Sources folder by trip and day, each checked by its hash there; TMP keeps them till you free it"), tooltip::Position::Bottom),

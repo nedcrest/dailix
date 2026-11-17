@@ -45,20 +45,54 @@ pub struct Ledger {
     /// The videos copied into the archive and checked there (gap 119).
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub archived: BTreeMap<String, crate::archive::Archived>,
+    /// Each recorded video's size when it was: a place says which video
+    /// only while the file there is that one (the audit, 2026-11-17: a
+    /// new card's DJI_0001 at a freed one's place was taken for it, and
+    /// «Free TMP» would have trashed it).
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub sizes: BTreeMap<String, u64>,
 }
 
 impl Ledger {
-    /// The ledger in `tmp`; empty when there's none (or it can't be read:
-    /// it's a record of what was done, never what's needed to do more).
+    /// The ledger in `tmp` to show: empty when there's none or it can't
+    /// be read.
     pub fn load(tmp: &Path) -> Ledger {
-        std::fs::read_to_string(tmp.join(LEDGER)).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default()
+        Ledger::load_checked(tmp).unwrap_or_default()
     }
 
-    /// Written whole or not at all.
+    /// The ledger in `tmp` to change: empty when there's none, an error
+    /// when there's one that can't be read (written over, every record of
+    /// what went where would be gone: the audit, 2026-11-17).
+    pub fn load_checked(tmp: &Path) -> Result<Ledger, String> {
+        match std::fs::read_to_string(tmp.join(LEDGER)) {
+            Ok(t) => serde_json::from_str(&t).map_err(|e| format!("{}: {e}; not written over", tmp.join(LEDGER).display())),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Ledger::default()),
+            Err(e) => Err(format!("{}: {e}", tmp.join(LEDGER).display())),
+        }
+    }
+
+    /// Written whole or not at all, on the disk before it takes the name
+    /// (as `import::copy`), through a file of this process's own.
     pub fn save(&self, tmp: &Path) -> std::io::Result<()> {
-        let part = tmp.join(format!("{LEDGER}.part"));
+        let part = tmp.join(format!("{LEDGER}.{}.part", std::process::id()));
         std::fs::write(&part, serde_json::to_string_pretty(self).map_err(std::io::Error::other)? + "\n")?;
+        std::fs::File::open(&part)?.sync_all()?;
         std::fs::rename(part, tmp.join(LEDGER))
+    }
+
+    /// The ledger in `tmp` changed by `change` and written, read just
+    /// before (the window and `dailix tmp` may both write it).
+    pub fn update(tmp: &Path, change: impl FnOnce(&mut Ledger)) -> Result<(), String> {
+        let mut l = Ledger::load_checked(tmp)?;
+        change(&mut l);
+        l.save(tmp).map_err(|e| format!("{}: {e}", tmp.join(LEDGER).display()))
+    }
+
+    /// Video `rel` forgotten: freed from TMP, its place may hold another.
+    pub fn forget(&mut self, rel: &str) {
+        self.files.remove(rel);
+        self.archived.remove(rel);
+        self.sizes.remove(rel);
     }
 
     /// Where the video at `rel` went, if anywhere.
@@ -71,13 +105,27 @@ impl Ledger {
     pub fn keep(&self, there: impl Fn(&Filed) -> bool) -> Ledger {
         let files = self.files.iter().map(|(rel, went)| (rel.clone(), went.iter().filter(|f| there(f)).cloned().collect::<Vec<_>>())).filter(|(_, went)| !went.is_empty()).collect();
         // What's in the archive stays so, whatever became of the trip's copy.
-        Ledger { files, archived: self.archived.clone() }
+        Ledger { files, archived: self.archived.clone(), sizes: self.sizes.clone() }
+    }
+
+    /// Only the videos whose place still holds them (`size`: the size of
+    /// the file there now, none if it's gone): one of another size there
+    /// is another video, new.
+    pub fn same_files(&self, size: impl Fn(&str) -> Option<u64>) -> Ledger {
+        let same = |rel: &str| match (self.sizes.get(rel), size(rel)) {
+            (Some(was), Some(now)) => *was == now,
+            (None, Some(_)) => true,
+            (_, None) => false,
+        };
+        let files = self.files.iter().filter(|(r, _)| same(r)).map(|(r, f)| (r.clone(), f.clone())).collect();
+        let archived = self.archived.iter().filter(|(r, _)| same(r)).map(|(r, a)| (r.clone(), a.clone())).collect();
+        Ledger { files, archived, sizes: self.sizes.clone() }
     }
 
     /// The ledger in `tmp` as it stands now: only the copies still in
     /// their trips (in the `projects` place).
     pub fn now(tmp: &Path, projects: Option<&Path>) -> Ledger {
-        let ledger = Ledger::load(tmp);
+        let ledger = Ledger::load(tmp).same_files(|rel| std::fs::metadata(tmp.join(rel)).ok().map(|m| m.len()));
         match projects {
             Some(p) => ledger.keep(|f| Layout::new(p.join(&f.trip)).clip(&format!("{}/{}", f.day, f.name)).is_file()),
             None => ledger,
@@ -182,7 +230,7 @@ pub fn by_day(raws: &[Raw]) -> Vec<(Option<String>, Vec<usize>)> {
 
 /// How many of `rels` the ledger has no place for: what's new in TMP.
 pub fn new_count<'a>(ledger: &Ledger, rels: impl IntoIterator<Item = &'a str>) -> usize {
-    rels.into_iter().filter(|r| ledger.filed(r).is_empty()).count()
+    rels.into_iter().filter(|r| crate::archive::stage(ledger, r) == crate::archive::Stage::New).count()
 }
 
 /// The sorter's tiles picked after a click on `at` (`order`: the tiles as
@@ -246,15 +294,22 @@ pub fn file(tmp: &Path, root: &Path, files: &[PathBuf], day: Option<&str>, parts
     let said = add::add(root, &picks, day)?;
     // The ledger first: the copies are made, whatever the parts do.
     let trip = root.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-    let mut ledger = Ledger::load(tmp);
-    for (f, s) in files.iter().zip(&said) {
-        if clip_key(s).is_some()
-            && let Some(d) = &s.day
-        {
-            ledger.record(&rel(tmp, f), Filed { trip: trip.clone(), day: d.clone(), name: s.name.clone() });
+    Ledger::update(tmp, |ledger| {
+        for (f, s) in files.iter().zip(&said) {
+            if clip_key(s).is_some()
+                && let Some(d) = &s.day
+            {
+                let r = rel(tmp, f);
+                // A place now holding another file: what was recorded there goes.
+                let size = std::fs::metadata(f).map(|m| m.len()).unwrap_or_default();
+                if ledger.sizes.get(&r).is_some_and(|was| *was != size) {
+                    ledger.forget(&r);
+                }
+                ledger.sizes.insert(r.clone(), size);
+                ledger.record(&r, Filed { trip: trip.clone(), day: d.clone(), name: s.name.clone() });
+            }
         }
-    }
-    ledger.save(tmp)?;
+    })?;
     // The posters the sorter made, kept: the trip's day cards show them
     // at once, not when the sheet first opens (the same frame, a third in).
     let layout = Layout::new(root);
@@ -322,6 +377,31 @@ mod tests {
         l.save(&dir).unwrap();
         assert_eq!(Ledger::load(&dir), l);
         assert_eq!(Ledger::load(&dir.join("none")), Ledger::default());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn another_file_at_a_videos_place_is_a_new_video() {
+        let mut l = Ledger::default();
+        l.record("card/DJI_0001.MP4", Filed { trip: "kos".into(), day: "2026-08-22".into(), name: "DJI_0001.MP4".into() });
+        l.sizes.insert("card/DJI_0001.MP4".into(), 100);
+        l.archived.insert("card/DJI_0001.MP4".into(), crate::archive::Archived { path: "/s/x".into(), hash: "h".into() });
+        let same = l.same_files(|_| Some(100));
+        assert_eq!(crate::archive::stage(&same, "card/DJI_0001.MP4"), crate::archive::Stage::Archived);
+        let other = l.same_files(|_| Some(222));
+        assert_eq!(crate::archive::stage(&other, "card/DJI_0001.MP4"), crate::archive::Stage::New);
+        assert_eq!(crate::archive::stage(&l.same_files(|_| None), "card/DJI_0001.MP4"), crate::archive::Stage::New);
+        l.forget("card/DJI_0001.MP4");
+        assert_eq!(l, Ledger::default());
+    }
+
+    #[test]
+    fn a_ledger_that_cant_be_read_is_never_written_over() {
+        let dir = std::env::temp_dir().join(format!("dailix-ledger-bad-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join(LEDGER), b"{ not json").unwrap();
+        assert!(Ledger::update(&dir, |l| l.record("a", Filed { trip: "t".into(), day: "d".into(), name: "n".into() })).is_err());
+        assert_eq!(std::fs::read(dir.join(LEDGER)).unwrap(), b"{ not json");
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

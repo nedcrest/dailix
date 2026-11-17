@@ -124,6 +124,11 @@ pub fn trip(root: &Path) -> Result<Trip, String> {
 }
 
 /// `n` of `one` in words: «1 clip», «2 clips», «0 clips».
+/// The keys (`<day>/<file>`) of the clips the trip at `root` holds.
+pub fn clip_keys(root: &std::path::Path) -> Vec<String> {
+    dailix_sheet::footage::read(&dailix_sheet::Layout::new(root)).map(|(f, _)| f.days.into_iter().flat_map(|d| d.clips.into_iter().map(|c| c.key)).collect()).unwrap_or_default()
+}
+
 pub fn count(n: usize, one: &str) -> String {
     if n == 1 { format!("1 {one}") } else { format!("{n} {one}s") }
 }

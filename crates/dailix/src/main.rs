@@ -200,9 +200,9 @@ fn tmp_cmd(cmd: TmpCmd) -> Result<(), Box<dyn std::error::Error>> {
                 match archive::archive_one(&r.path, &filed, &sources) {
                     Ok(a) => {
                         println!("{}  → {}", r.rel, a.path.display());
-                        let mut on_disk = tmp::Ledger::load(&place);
-                        on_disk.archived.insert(r.rel, a);
-                        on_disk.save(&place)?;
+                        tmp::Ledger::update(&place, |l| {
+                            l.archived.insert(r.rel.clone(), a);
+                        })?;
                     }
                     Err(e) => println!("{}  not archived: {e}", r.rel),
                 }
@@ -216,7 +216,10 @@ fn tmp_cmd(cmd: TmpCmd) -> Result<(), Box<dyn std::error::Error>> {
                     continue;
                 }
                 match archive::free_one(&r.path, &tmp::poster(&place, &r.rel), &l.archived[&r.rel]) {
-                    Ok(()) => println!("{}  to the trash", r.rel),
+                    Ok(()) => {
+                        tmp::Ledger::update(&place, |l| l.forget(&r.rel))?;
+                        println!("{}  to the trash", r.rel);
+                    }
                     Err(e) => println!("{}  kept: {e}", r.rel),
                 }
             }

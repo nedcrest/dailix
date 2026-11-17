@@ -40,7 +40,11 @@ fact written in several places, and rules living in UI handlers untested.
   Omnix's library, never a bare `"ffmpeg"`.
 - No help text in the window: hover hints (`tip`); the F1 keys list is the
   exception, kept in step with the keys (`help.rs`).
-- Originals are never written: the sources place is read-only.
+- Originals are never written: a file in the sources place (the
+  archive) is never changed, moved or deleted. Dailix only adds to it:
+  TMP's videos copied in, each checked by its hash (gap 119,
+  `archive.rs`), never over a file there. TMP's own originals go only
+  to the trash, and only once their archive copy is checked again.
 - Doc comments say why, on the item they describe; no dead code, no
   `allow(dead_code)`.
 - Licence MIT OR Apache-2.0; no vendor SDKs.

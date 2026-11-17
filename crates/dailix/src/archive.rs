@@ -102,6 +102,13 @@ pub fn archive_one(original: &Path, filed: &Filed, sources: &Path) -> Result<Arc
 /// TMP's video `original` to the trash (with its poster), once its archive
 /// copy still has the hash it was archived with.
 pub fn free_one(original: &Path, poster: &Path, archived: &Archived) -> Result<(), String> {
+    // The original itself first: only the very file that was archived
+    // goes (the audit, 2026-11-17: another file at its place would have).
+    match hash(original) {
+        Ok(h) if h == archived.hash => {}
+        Ok(_) => return Err(format!("{}: not the file that was archived; kept", original.display())),
+        Err(e) => return Err(format!("{}: {e}", original.display())),
+    }
     match hash(&archived.path) {
         Ok(h) if h == archived.hash => {}
         Ok(_) => return Err(format!("{}: the archive copy has changed; TMP keeps the original", archived.path.display())),
@@ -151,7 +158,10 @@ mod tests {
         assert_eq!(archive_one(&original, &f, &sources).unwrap(), a);
         std::fs::write(&a.path, b"something else").unwrap();
         assert!(archive_one(&original, &f, &sources).is_err());
-        // A changed copy keeps the original in TMP.
+        // A changed copy keeps the original in TMP; so does another original.
+        assert!(free_one(&original, &tmp.join("none.jpg"), &a).is_err() && original.is_file());
+        std::fs::write(&a.path, b"the picture").unwrap();
+        std::fs::write(&original, b"another card's DJI_0001").unwrap();
         assert!(free_one(&original, &tmp.join("none.jpg"), &a).is_err() && original.is_file());
         std::fs::remove_dir_all(&dir).unwrap();
     }

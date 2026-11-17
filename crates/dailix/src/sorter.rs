@@ -89,7 +89,7 @@ pub enum SortMsg {
     FreeAsk(Vec<usize>),
     FreeCancel,
     FreeConfirm,
-    MovedOne(usize, Result<Option<crate::archive::Archived>, String>),
+    MovedOne(String, Result<Option<crate::archive::Archived>, String>),
     Loaded(PathBuf, Slot),
     Toggle,
     Scrub(f64),
@@ -169,6 +169,10 @@ impl App {
             self.error = Some("TMP isn't set, or isn't there: choose its folder in Settings.".into());
             return Task::none();
         };
+        // A job under way: the sorter stays as it is.
+        if self.sorter.as_ref().is_some_and(Sorter::busy) {
+            return Task::none();
+        }
         let _ = self.save_typed();
         self.at_home = true;
         self.trip_open = None;
@@ -184,7 +188,7 @@ impl App {
         s.scanning = false;
         s.raws = raws;
         let todo: Vec<(PathBuf, f64, PathBuf)> = s.raws.iter().map(|r| (r.path.clone(), r.duration, tmp::poster(&place, &r.rel))).filter(|(_, _, p)| !p.is_file()).collect();
-        let first = s.order().into_iter().find(|i| s.ledger.filed(&s.raws[*i].rel).is_empty());
+        let first = s.order().into_iter().find(|i| crate::archive::stage(&s.ledger, &s.raws[*i].rel) == crate::archive::Stage::New);
         let pick = first.map_or_else(Task::none, |i| {
             s.mods = iced::keyboard::Modifiers::default();
             Task::done(Message::Sort(SortMsg::Click(i)))
@@ -258,7 +262,7 @@ impl App {
     /// window's thread, so the line under the bar says how far it is.
     fn file_picked(&mut self) -> Task<Message> {
         let Some(s) = &mut self.sorter else { return Task::none() };
-        let Some(root) = s.trip.clone().filter(|_| !s.picked.is_empty() && s.filing.is_none()) else { return Task::none() };
+        let Some(root) = s.trip.clone().filter(|_| !s.picked.is_empty() && !s.busy()) else { return Task::none() };
         let day = s.day.trim().to_owned();
         if !day.is_empty() && !dailix_sheet::footage::is_day(&day) {
             self.error = Some(format!("«{day}» isn't a day: give it as YYYY-MM-DD."));
@@ -316,7 +320,7 @@ impl App {
         let Some(f) = s.filing.take() else { return Task::none() };
         self.notice = Some(format!("{}: {}", dailix_sheet::project::title(&f.root), crate::add::summary(&f.said)));
         let order = s.order();
-        let next = order.iter().skip_while(|i| Some(**i) != f.last).skip(1).find(|i| s.ledger.filed(&s.raws[**i].rel).is_empty()).copied();
+        let next = order.iter().skip_while(|i| Some(**i) != f.last).skip(1).find(|i| crate::archive::stage(&s.ledger, &s.raws[**i].rel) == crate::archive::Stage::New).copied();
         s.picked = next.into_iter().collect();
         s.anchor = next;
         self.refresh_home();
@@ -372,7 +376,7 @@ impl App {
             Key::Named(Named::Space) => Some(Task::done(Message::Sort(SortMsg::Toggle))),
             Key::Named(Named::Enter) => Some(Task::done(Message::Sort(SortMsg::File))),
             Key::Character("a") if mods.command() => {
-                s.picked = s.order().into_iter().filter(|i| s.ledger.filed(&s.raws[*i].rel).is_empty()).collect();
+                s.picked = s.order().into_iter().filter(|i| crate::archive::stage(&s.ledger, &s.raws[*i].rel) == crate::archive::Stage::New).collect();
                 Some(Task::none())
             }
             Key::Named(dir @ (Named::ArrowLeft | Named::ArrowRight)) if !mods.command() && !mods.alt() => {
@@ -450,8 +454,15 @@ impl App {
         let picture: Element<'a, Message> = if poster.is_file() { image(image::Handle::from_path(poster)).width(TILE).height(h).into() } else { container(text("…").size(12)).width(TILE).height(h).center_x(TILE).center_y(h).style(container::rounded_box).into() };
         let filed = s.ledger.filed(&r.rel);
         let name = r.path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-        let went = filed.first().map_or_else(|| format!("{:.0} s · new", r.duration), |f| self.went(f));
-        let info = column![text(crate::library::middle(&name, 26)).size(12), text(went).size(11).style(if filed.is_empty() { text::secondary } else { text::success })].spacing(2).width(TILE);
+        let stage = crate::archive::stage(&s.ledger, &r.rel);
+        let went = match (filed.first(), stage) {
+            (Some(f), _) => self.went(f),
+            // In the archive, its trip's copy gone since: not new.
+            (None, crate::archive::Stage::Archived) => "✓ in the archive".to_owned(),
+            _ => format!("{:.0} s · new", r.duration),
+        };
+        let filed = if stage == crate::archive::Stage::New { &[][..] } else { filed };
+        let info = column![text(crate::library::middle(&name, 26)).size(12), text(went).size(11).style(if filed.is_empty() && stage == crate::archive::Stage::New { text::secondary } else { text::success })].spacing(2).width(TILE);
         let picked = s.picked.contains(&i);
         let tile = button(column![picture, info].spacing(4)).padding(4).on_press(Message::Sort(SortMsg::Click(i))).style(move |t, st| {
             let mut b = if picked { button::primary(t, st) } else { button::text(t, st) };
@@ -492,7 +503,7 @@ impl App {
         if undated > 0 {
             day = day.push(text_input("YYYY-MM-DD, for those with no date", &s.day).size(13).on_input(|t| Message::Sort(SortMsg::Day(t))).on_submit(to(SortMsg::File)));
         }
-        let ready = chosen.is_some() && picked > 0 && s.filing.is_none() && (undated == 0 || dailix_sheet::footage::is_day(s.day.trim()));
+        let ready = chosen.is_some() && picked > 0 && !s.busy() && (undated == 0 || dailix_sheet::footage::is_day(s.day.trim()));
         let go = match &chosen {
             Some(t) => format!("File {} into {}", crate::library::count(picked, "video"), t.title),
             None => "File".to_owned(),
