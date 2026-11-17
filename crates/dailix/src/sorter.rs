@@ -59,6 +59,8 @@ pub struct Sorter {
     /// TMP is asked to let go.
     pub moving: Option<super::sorter_archive::Moving>,
     pub asking_free: Option<Vec<usize>>,
+    /// «Archive all and free TMP» asked about.
+    pub asking_all: bool,
     /// Shift and Ctrl as they are now, for a click on a tile.
     pub mods: iced::keyboard::Modifiers,
 }
@@ -89,7 +91,11 @@ pub enum SortMsg {
     FreeAsk(Vec<usize>),
     FreeCancel,
     FreeConfirm,
-    MovedOne(String, Result<Option<crate::archive::Archived>, String>),
+    MovedOne(String, crate::archive::Moved),
+    /// Every video into the archive and out of TMP: asked, no, yes.
+    AllAsk,
+    AllCancel,
+    AllConfirm,
     Loaded(PathBuf, Slot),
     Toggle,
     Scrub(f64),
@@ -158,7 +164,7 @@ impl App {
             SortMsg::File => return self.file_picked(),
             SortMsg::FiledOne(said) => return self.filed_one(said),
             m @ (SortMsg::Grip | SortMsg::Drag(_) | SortMsg::Release) => self.sort_grip(m),
-            m @ (SortMsg::Archive(_) | SortMsg::FreeAsk(_) | SortMsg::FreeCancel | SortMsg::FreeConfirm | SortMsg::MovedOne(..)) => return self.on_archive(m),
+            m @ (SortMsg::Archive(_) | SortMsg::FreeAsk(_) | SortMsg::FreeCancel | SortMsg::FreeConfirm | SortMsg::MovedOne(..) | SortMsg::AllAsk | SortMsg::AllCancel | SortMsg::AllConfirm) => return self.on_archive(m),
             m => self.sort_player(m),
         }
         Task::none()
@@ -303,7 +309,8 @@ impl App {
         let name = file.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
         self.notice = Some(tmp::filing_line(f.done, f.total, &dailix_sheet::project::title(&f.root), &name));
         let (root, parts) = (f.root.clone(), f.parts.clone());
-        Task::perform(blocking(move || tmp::file(&place, &root, &[file], day.as_deref(), &parts).map_err(|e| e.to_string())), |said| Message::Sort(SortMsg::FiledOne(said)))
+        let sources = self.settings.place(crate::settings::PlaceKind::Sources).filter(|p| p.is_dir());
+        Task::perform(blocking(move || tmp::file(&place, &root, &[file], day.as_deref(), &parts, sources.as_deref()).map_err(|e| e.to_string())), |said| Message::Sort(SortMsg::FiledOne(said)))
     }
 
     /// One file done: its line kept, the ledger read again (its tile says
@@ -563,7 +570,12 @@ impl App {
         .align_y(Alignment::Center);
         let hint = text(format!("{} new in TMP · Shift or Ctrl and a click pick more", s.new_ones())).size(12).style(text::secondary);
         let next = (picked > 0).then(|| text(super::sorter_archive::next_line(crate::archive::next(&s.stages(&s.picked)))).size(13));
-        column![head, hint].push(next).push(rule::horizontal(1)).push(column![ label("Trip"), trip, day, self.sort_parts(s, chosen.as_ref()), rule::horizontal(1), file].spacing(10)).spacing(10).into()
+        column![head, hint].push(next).push(rule::horizontal(1)).push(column![ label("Trip"), trip, day, self.sort_parts(s, chosen.as_ref()), rule::horizontal(1), file].spacing(10))
+            .push(space().height(18))
+            .push(rule::horizontal(1))
+            .push(tip(ui::act(format!("Archive all and free TMP ({})", s.raws.len()), ui::Kind::Secondary).width(Length::Fill).on_press_maybe((!s.busy() && !s.raws.is_empty()).then_some(Message::Sort(SortMsg::AllAsk))), text("Every video in TMP into the archive, each checked, then out of TMP (asked first)"), tooltip::Position::Top))
+            .spacing(10)
+            .into()
     }
 
     /// The trip's parts to tick, and a new one.

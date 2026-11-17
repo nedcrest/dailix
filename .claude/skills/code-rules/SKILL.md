@@ -43,8 +43,11 @@ fact written in several places, and rules living in UI handlers untested.
 - Originals are never written: a file in the sources place (the
   archive) is never changed, moved or deleted. Dailix only adds to it:
   TMP's videos copied in, each checked by its hash (gap 119,
-  `archive.rs`), never over a file there. TMP's own originals go only
-  to the trash, and only once their archive copy is checked again.
+  `archive.rs`), never over a file there. One thing it moves: a copy
+  it put under `_not-in-a-trip` follows its video into the trip's day
+  once filed, checked by hash before the old one goes to the trash.
+  TMP's own originals go only to the trash, and only once their archive
+  copy is checked again.
 - Doc comments say why, on the item they describe; no dead code, no
   `allow(dead_code)`.
 - Licence MIT OR Apache-2.0; no vendor SDKs.

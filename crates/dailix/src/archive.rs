@@ -137,6 +137,46 @@ pub fn free_one(original: &Path, poster: &Path, archived: &Archived) -> Result<(
     trash::delete_all(files).map_err(|e| format!("{}: {e}", original.display()))
 }
 
+/// What one video's step did: its archive copy (made or there already),
+/// whether TMP let it go, and what went wrong.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct Moved {
+    pub archived: Option<Archived>,
+    pub freed: bool,
+    pub error: Option<String>,
+}
+
+/// A video into the archive (unless `already` there) and then out of TMP
+/// («Archive all and free TMP», the user, 2026-11-17): it leaves TMP only
+/// once its copy is made and checked; a failure keeps it in TMP.
+pub fn archive_and_free(original: &Path, filed: Option<&Filed>, day: Option<&str>, sources: &Path, poster: &Path, already: Option<Archived>) -> Moved {
+    let a = match already.map_or_else(|| archive_one(original, filed, day, sources), Ok) {
+        Ok(a) => a,
+        Err(e) => return Moved { error: Some(e), ..Default::default() },
+    };
+    match free_one(original, poster, &a) {
+        Ok(()) => Moved { archived: Some(a), freed: true, error: None },
+        Err(e) => Moved { archived: Some(a), freed: false, error: Some(e) },
+    }
+}
+
+/// An archive copy kept under `_not-in-a-trip` moved to its trip's day
+/// once its video is filed (the user, 2026-11-17): copied there, checked
+/// by its hash, and only then the old one to the trash. Where it is now.
+pub fn relocate(a: &Archived, filed: &Filed, sources: &Path) -> Result<Archived, String> {
+    let moved = archive_one(&a.path, Some(filed), None, sources)?;
+    if moved.hash != a.hash {
+        return Err(format!("{}: reads differently from the archived one", moved.path.display()));
+    }
+    trash::delete(&a.path).map_err(|e| format!("{}: {e}", a.path.display()))?;
+    Ok(moved)
+}
+
+/// Whether an archive copy waits under `_not-in-a-trip` in `sources`.
+pub fn not_in_a_trip(a: &Archived, sources: &Path) -> bool {
+    a.path.starts_with(sources.join(NOT_IN_A_TRIP))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -182,6 +222,28 @@ mod tests {
         std::fs::write(&a.path, b"the picture").unwrap();
         std::fs::write(&original, b"another card's DJI_0001").unwrap();
         assert!(free_one(&original, &tmp.join("none.jpg"), &a).is_err() && original.is_file());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn all_into_the_archive_frees_only_what_it_checked_and_unsorted_copies_follow_their_trip() {
+        let dir = std::env::temp_dir().join(format!("dailix-archive-all-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let (tmp, sources) = (dir.join("tmp"), dir.join("sources"));
+        std::fs::create_dir_all(&tmp).unwrap();
+        let original = tmp.join("DJI_0002.MP4");
+        std::fs::write(&original, b"unsorted").unwrap();
+        let m = archive_and_free(&original, None, Some("2026-08-22"), &sources, &tmp.join("none.jpg"), None);
+        let a = m.archived.clone().unwrap();
+        assert!(m.freed && m.error.is_none() && !original.exists() && a.path.ends_with("_not-in-a-trip/2026-08-22/DJI_0002.MP4") && not_in_a_trip(&a, &sources));
+        // Filed later: the copy follows into its trip's day, the old one goes.
+        let moved = relocate(&a, &filed("kos", "2026-08-22"), &sources).unwrap();
+        assert!(moved.path.ends_with("kos/2026-08-22/DJI_0002.MP4") && moved.hash == a.hash && !a.path.exists() && !not_in_a_trip(&moved, &sources));
+        // No archive to copy into: nothing leaves TMP.
+        std::fs::write(&original, b"again").unwrap();
+        std::fs::write(dir.join("a-file"), b"x").unwrap();
+        let m = archive_and_free(&original, None, None, &dir.join("a-file"), &tmp.join("none.jpg"), None);
+        assert!(m.archived.is_none() && !m.freed && m.error.is_some() && original.exists());
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

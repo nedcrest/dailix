@@ -292,7 +292,7 @@ pub fn part_ops(known: &[String], parts: &[String], clips: &[String]) -> Vec<Op>
 /// Files `files` (TMP's videos) into the trip at `root`, each under its
 /// day (or `day`), and into `parts`; the ledger in `tmp` says where each
 /// went. A line said for each, as `add` says it.
-pub fn file(tmp: &Path, root: &Path, files: &[PathBuf], day: Option<&str>, parts: &[String]) -> Result<Vec<Said>, Error> {
+pub fn file(tmp: &Path, root: &Path, files: &[PathBuf], day: Option<&str>, parts: &[String], sources: Option<&Path>) -> Result<Vec<Said>, Error> {
     let picks: Vec<Pick> = files.iter().map(|f| Pick { file: f.clone(), span: None }).collect();
     let said = add::add(root, &picks, day)?;
     // The ledger first: the copies are made, whatever the parts do.
@@ -326,6 +326,7 @@ pub fn file(tmp: &Path, root: &Path, files: &[PathBuf], day: Option<&str>, parts
             let _ = std::fs::copy(poster(tmp, &rel(tmp, f)), to);
         }
     }
+    let moved = follow_into_trip(tmp, files, sources);
     let keys: Vec<String> = said.iter().filter_map(clip_key).collect();
     let store = Store::new(layout.sheet());
     let known: Vec<String> = store.read().ok().and_then(|d| d.sheet().ok()).map(|s| s.parts.into_iter().map(|p| p.name).collect()).unwrap_or_default();
@@ -333,7 +334,28 @@ pub fn file(tmp: &Path, root: &Path, files: &[PathBuf], day: Option<&str>, parts
     if !ops.is_empty() {
         store.apply(&ops)?;
     }
+    moved?;
     Ok(said)
+}
+
+/// The archive copies of `files` kept under `_not-in-a-trip` moved into
+/// the trip and day each was just filed under (archive::relocate), the
+/// ledger saying where they are now.
+fn follow_into_trip(tmp: &Path, files: &[PathBuf], sources: Option<&Path>) -> Result<(), String> {
+    let Some(sources) = sources else { return Ok(()) };
+    let ledger = Ledger::load_checked(tmp)?;
+    for f in files {
+        let r = rel(tmp, f);
+        let (Some(a), Some(filed)) = (ledger.archived.get(&r), ledger.filed(&r).first()) else { continue };
+        if !crate::archive::not_in_a_trip(a, sources) {
+            continue;
+        }
+        let moved = crate::archive::relocate(a, filed, sources).map_err(|e| format!("filed, but its archive copy didn't follow: {e}"))?;
+        Ledger::update(tmp, |l| {
+            l.archived.insert(r.clone(), moved);
+        })?;
+    }
+    Ok(())
 }
 
 /// TMP as text, a day at a time: each video, its length, and where it

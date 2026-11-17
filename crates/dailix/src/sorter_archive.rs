@@ -20,6 +20,8 @@ use std::path::PathBuf;
 #[derive(Debug, Clone)]
 pub struct Moving {
     pub free: bool,
+    /// Both: each video into the archive, then out of TMP.
+    pub both: bool,
     /// The videos themselves, not places in the sorter's list: the list
     /// is read again while a file goes (the audit, 2026-11-17: an index
     /// into a newer, shorter list panicked).
@@ -32,7 +34,11 @@ pub struct Moving {
 impl Moving {
     /// The line under the bar while it goes.
     pub fn line(&self, now: &str) -> String {
-        let verb = if self.free { "Freeing TMP" } else { "Copying into the archive" };
+        let verb = match (self.both, self.free) {
+            (true, _) => "Into the archive and out of TMP",
+            (_, true) => "Freeing TMP",
+            _ => "Copying into the archive",
+        };
         format!("{verb}: {} of {}: {now}", self.done + 1, self.total)
     }
 }
@@ -66,7 +72,23 @@ impl App {
 
     pub(super) fn on_archive(&mut self, msg: SortMsg) -> Task<Message> {
         match msg {
-            SortMsg::Archive(list) => return self.start_moving(list, false),
+            SortMsg::Archive(list) => return self.start_moving(list, false, false),
+            SortMsg::AllAsk => {
+                if let Some(s) = &mut self.sorter {
+                    s.asking_all = true;
+                }
+            }
+            SortMsg::AllCancel => {
+                if let Some(s) = &mut self.sorter {
+                    s.asking_all = false;
+                }
+            }
+            SortMsg::AllConfirm => {
+                let Some(s) = &mut self.sorter else { return Task::none() };
+                s.asking_all = false;
+                let all = (0..s.raws.len()).collect();
+                return self.start_moving(all, false, true);
+            }
             SortMsg::FreeAsk(list) => {
                 if let Some(s) = &mut self.sorter {
                     s.asking_free = Some(list);
@@ -79,7 +101,7 @@ impl App {
             }
             SortMsg::FreeConfirm => {
                 let list = self.sorter.as_mut().and_then(|s| s.asking_free.take()).unwrap_or_default();
-                return self.start_moving(list, true);
+                return self.start_moving(list, true, false);
             }
             SortMsg::MovedOne(i, done) => return self.moved_one(i, done),
             _ => {}
@@ -89,18 +111,18 @@ impl App {
 
     /// Archiving (or freeing) `list` started: those at the right stage
     /// only, a file at a time.
-    fn start_moving(&mut self, list: Vec<usize>, free: bool) -> Task<Message> {
+    fn start_moving(&mut self, list: Vec<usize>, free: bool, both: bool) -> Task<Message> {
         let Some(s) = &mut self.sorter else { return Task::none() };
         if s.busy() {
             return Task::none();
         }
         // Freeing: what's archived; archiving: everything not yet, in a
         // trip or not.
-        let queue: VecDeque<crate::tmp::Raw> = list.into_iter().filter_map(|i| s.raws.get(i)).filter(|r| (archive::stage(&s.ledger, &r.rel) == Stage::Archived) == free).cloned().collect();
+        let queue: VecDeque<crate::tmp::Raw> = list.into_iter().filter_map(|i| s.raws.get(i)).filter(|r| both || (archive::stage(&s.ledger, &r.rel) == Stage::Archived) == free).cloned().collect();
         if queue.is_empty() {
             return Task::none();
         }
-        s.moving = Some(Moving { free, total: queue.len(), queue, done: 0, failed: Vec::new() });
+        s.moving = Some(Moving { free, both, total: queue.len(), queue, done: 0, failed: Vec::new() });
         self.move_next()
     }
 
@@ -111,43 +133,58 @@ impl App {
         let Some(raw) = m.queue.pop_front() else { return self.moved_all() };
         let rel = raw.rel.clone();
         self.notice = Some(m.line(&raw.rel));
+        let failed = |e: &str| archive::Moved { error: Some(e.to_owned()), ..Default::default() };
+        let poster = crate::tmp::poster(&tmp.unwrap_or_default(), &raw.rel);
+        let already = s.ledger.archived.get(&raw.rel).cloned();
         if m.free {
-            let Some(archived) = s.ledger.archived.get(&raw.rel).cloned() else { return Task::done(Message::Sort(SortMsg::MovedOne(rel, Err("not in the archive".into())))) };
-            let poster = crate::tmp::poster(&tmp.unwrap_or_default(), &raw.rel);
-            return Task::perform(blocking(move || archive::free_one(&raw.path, &poster, &archived).map(|()| None)), move |r| Message::Sort(SortMsg::MovedOne(rel.clone(), r)));
+            let Some(archived) = already else { return Task::done(Message::Sort(SortMsg::MovedOne(rel, failed("not in the archive")))) };
+            return Task::perform(blocking(move || match archive::free_one(&raw.path, &poster, &archived) {
+                Ok(()) => archive::Moved { freed: true, ..Default::default() },
+                Err(e) => archive::Moved { error: Some(e), ..Default::default() },
+            }), move |m| Message::Sort(SortMsg::MovedOne(rel.clone(), m)));
         }
-        let Some(sources) = sources else {
-            return Task::done(Message::Sort(SortMsg::MovedOne(rel, Err("the archive (Sources) isn't set, or isn't there".into()))));
-        };
+        let Some(sources) = sources else { return Task::done(Message::Sort(SortMsg::MovedOne(rel, failed("the archive (Sources) isn't set, or isn't there")))) };
         let filed = s.ledger.filed(&raw.rel).first().cloned();
-        Task::perform(blocking(move || archive::archive_one(&raw.path, filed.as_ref(), raw.day.as_deref(), &sources).map(Some)), move |r| Message::Sort(SortMsg::MovedOne(rel.clone(), r)))
+        if m.both {
+            return Task::perform(blocking(move || archive::archive_and_free(&raw.path, filed.as_ref(), raw.day.as_deref(), &sources, &poster, already)), move |m| Message::Sort(SortMsg::MovedOne(rel.clone(), m)));
+        }
+        Task::perform(blocking(move || match archive::archive_one(&raw.path, filed.as_ref(), raw.day.as_deref(), &sources) {
+            Ok(a) => archive::Moved { archived: Some(a), ..Default::default() },
+            Err(e) => archive::Moved { error: Some(e), ..Default::default() },
+        }), move |m| Message::Sort(SortMsg::MovedOne(rel.clone(), m)))
     }
 
     /// One done: an archived copy written into the ledger (before the next,
     /// so a stop midway loses nothing), the next started.
-    fn moved_one(&mut self, rel: String, done: Result<Option<archive::Archived>, String>) -> Task<Message> {
+    fn moved_one(&mut self, rel: String, done: archive::Moved) -> Task<Message> {
         let tmp = self.settings.tmp.clone().unwrap_or_default();
         let Some(s) = &mut self.sorter else { return Task::none() };
         let Some(m) = &mut s.moving else { return Task::none() };
         m.done += 1;
-        match done {
-            // Archived: said in the ledger before the next.
-            Ok(Some(a)) => match crate::tmp::Ledger::update(&tmp, |l| {
+        // Archived: said in the ledger before the next; freed: forgotten,
+        // so its place can hold another video.
+        let (archived, freed) = (done.archived.clone(), done.freed);
+        let write = crate::tmp::Ledger::update(&tmp, |l| {
+            if let Some(a) = &archived {
                 l.archived.insert(rel.clone(), a.clone());
-            }) {
-                Ok(()) => {
-                    s.ledger.archived.insert(rel, a);
-                }
-                Err(e) => m.failed.push(format!("{rel}: the ledger: {e}")),
-            },
-            // Freed: forgotten, so its place can hold another video.
-            Ok(None) => {
-                if let Err(e) = crate::tmp::Ledger::update(&tmp, |l| l.forget(&rel)) {
-                    m.failed.push(format!("{rel}: the ledger: {e}"));
-                }
-                s.ledger.forget(&rel);
             }
-            Err(e) => m.failed.push(e),
+            if freed {
+                l.forget(&rel);
+            }
+        });
+        match write {
+            Ok(()) => {
+                if let Some(a) = archived {
+                    s.ledger.archived.insert(rel.clone(), a);
+                }
+                if freed {
+                    s.ledger.forget(&rel);
+                }
+            }
+            Err(e) => m.failed.push(format!("{rel}: the ledger: {e}")),
+        }
+        if let Some(e) = done.error {
+            m.failed.push(e);
         }
         self.move_next()
     }
@@ -156,13 +193,17 @@ impl App {
     fn moved_all(&mut self) -> Task<Message> {
         let Some(m) = self.sorter.as_mut().and_then(|s| s.moving.take()) else { return Task::none() };
         let ok = m.done - m.failed.len();
-        let did = if m.free { format!("TMP freed of {}", crate::library::count(ok, "video")) } else { format!("{} copied into the archive and checked", crate::library::count(ok, "video")) };
+        let did = match (m.both, m.free) {
+            (true, _) => format!("{} into the archive, checked, and out of TMP", crate::library::count(ok, "video")),
+            (_, true) => format!("TMP freed of {}", crate::library::count(ok, "video")),
+            _ => format!("{} copied into the archive and checked", crate::library::count(ok, "video")),
+        };
         self.notice = Some(did);
         if let Some(first) = m.failed.first() {
             self.error = Some(format!("{} didn't: {first}", crate::library::count(m.failed.len(), "video")));
         }
         self.refresh_home();
-        if m.free { self.update(Message::Sort(SortMsg::Open)) } else { Task::none() }
+        if m.free || m.both { self.update(Message::Sort(SortMsg::Open)) } else { Task::none() }
     }
 
     /// A day's head: where its videos are, and its next step as a button.
@@ -181,6 +222,29 @@ impl App {
         });
         let free = (to_free > 0).then(|| tip(ui::small(format!("Free TMP ({to_free})"), ui::Kind::Secondary).on_press_maybe((!busy).then(|| Message::Sort(SortMsg::FreeAsk(list.to_vec())))), text("To the trash: the archive holds them, checked again before each goes"), tooltip::Position::Bottom));
         row![text(facts).size(14).style(text::secondary)].push(archive).push(free).spacing(12).align_y(iced::Alignment::Center).into()
+    }
+
+    /// The question before every video goes into the archive and out of
+    /// TMP: how many, how big, where the archive is.
+    pub(super) fn all_layer(&self) -> Element<'_, Message> {
+        let Some(s) = self.sorter.as_ref().filter(|s| s.asking_all) else { return space().into() };
+        let bytes: u64 = s.raws.iter().filter_map(|r| std::fs::metadata(&r.path).ok()).map(|m| m.len()).sum();
+        let archive = self.sources_place().map_or_else(|| "(not set)".to_owned(), |p| p.display().to_string());
+        let said = format!(
+            "{} ({:.1} GB) are copied into the archive, {archive}: by trip and day, those in no trip under {}/<day>. Each copy is checked by its hash; only then the video leaves TMP, to the trash (restorable from there). One that fails stays in TMP.",
+            crate::library::count(s.raws.len(), "video"),
+            bytes as f64 / 1e9,
+            archive::NOT_IN_A_TRIP
+        );
+        let ready = self.sources_place().is_some();
+        let buttons = row![
+            space().width(Length::Fill),
+            ui::act("Cancel", ui::Kind::Secondary).on_press(Message::Sort(SortMsg::AllCancel)),
+            ui::act("Archive all and free TMP", ui::Kind::Danger).on_press_maybe(ready.then_some(Message::Sort(SortMsg::AllConfirm))),
+        ]
+        .spacing(8);
+        let card = column![text("Everything into the archive, TMP emptied?").size(20), text(said).size(14).style(text::secondary), buttons].spacing(ui::DIALOG_GAP);
+        modal(ui::dialog(card, ui::DIALOG_WIDTH), Message::Sort(SortMsg::AllCancel))
     }
 
     /// The question before TMP lets videos go.
@@ -208,7 +272,7 @@ mod tests {
     fn the_next_step_is_said_in_a_line() {
         assert_eq!(next_line(Next::Archive(2)), "Next: 2 videos into the archive, then TMP can let them go.");
         assert_eq!(next_line(Next::Done), "Nothing left to do with these.");
-        let m = Moving { free: true, queue: VecDeque::new(), total: 4, done: 1, failed: Vec::new() };
+        let m = Moving { free: true, both: false, queue: VecDeque::new(), total: 4, done: 1, failed: Vec::new() };
         assert_eq!(m.line("card/a.MP4"), "Freeing TMP: 2 of 4: card/a.MP4");
     }
 }

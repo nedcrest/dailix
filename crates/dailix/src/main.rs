@@ -228,7 +228,8 @@ fn tmp_cmd(cmd: TmpCmd) -> Result<(), Box<dyn std::error::Error>> {
         TmpCmd::List => print!("{}", tmp::describe(&tmp::scan(&place), &tmp::Ledger::load(&place))),
         TmpCmd::File { trip, files, day, part } => {
             let files: Vec<PathBuf> = files.into_iter().map(|f| if f.is_absolute() { f } else { place.join(f) }).collect();
-            let said = tmp::file(&place, &trip, &files, day.as_deref(), &part)?;
+            let sources = settings::Settings::load().place(settings::PlaceKind::Sources).filter(|p| p.is_dir());
+            let said = tmp::file(&place, &trip, &files, day.as_deref(), &part, sources.as_deref())?;
             for line in &said {
                 println!("{line}");
             }
