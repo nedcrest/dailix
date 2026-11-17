@@ -35,11 +35,9 @@ pub fn back_from(place: &Place) -> Option<Place> {
 
 /// The jobs under way, said in a line (the UI review, step 9): adding
 /// videos, making edits, voices, posters; empty with none.
-pub fn busy_line(posters: usize, adding: usize, edits: usize, voices: usize, filing: Option<(usize, usize)>) -> String {
+pub fn busy_line(posters: usize, adding: usize, edits: usize, voices: usize, job: Option<String>) -> String {
     let mut said = Vec::new();
-    if let Some((done, total)) = filing {
-        said.push(format!("filing {} of {total}", done + 1));
-    }
+    said.extend(job);
     if adding > 0 {
         said.push(if adding == 1 { "adding videos".to_owned() } else { format!("adding videos to {adding} trips") });
     }
@@ -111,13 +109,46 @@ impl App {
                 .push(here(day.as_ref().map_or_else(|| "Contact sheet".to_owned(), |d| format!("Contact sheet · {d}")))),
         };
         let mut bar = row![path, space().width(Length::Fill)].spacing(12).align_y(Alignment::Center);
-        let filing = self.sorter.as_ref().and_then(|s| s.filing.as_ref()).map(|f| (f.done, f.total));
-        let busy = busy_line(self.making.len(), self.adding.len(), self.making_edits.len(), self.voice_makes.len(), filing);
+        // The TMP sorter's job: filing, archiving or freeing, how far.
+        let job = self.sorter.as_ref().and_then(|s| {
+            let filing = s.filing.as_ref().map(|f| format!("filing {} of {}", f.done + 1, f.total));
+            filing.or_else(|| s.moving.as_ref().map(|m| format!("{} {} of {}", if m.free { "freeing" } else { "archiving" }, m.done + 1, m.total)))
+        });
+        let busy = busy_line(self.making.len(), self.adding.len(), self.making_edits.len(), self.voice_makes.len(), job);
         if !busy.is_empty() {
             bar = bar.push(text(format!("⟳ {busy}")).size(13).style(text::secondary));
         }
         let main = tip(menu::opener("☰", menu::Menu::Main, ui::Kind::Secondary, false), text("Text size, open, keys, settings"), tooltip::Position::Left);
         container(bar.push(main)).padding([10, 16]).into()
+    }
+
+    /// How Dailix works: the way footage goes, a step each, and whether
+    /// the places it needs are set.
+    pub(super) fn how_layer(&self) -> Element<'_, Message> {
+        if !self.how_open {
+            return space().into();
+        }
+        let steps = crate::help::WAY.iter().enumerate().map(|(i, (title, what))| row![text(format!("{}.", i + 1)).size(14).width(24), column![text(*title).size(15), text(*what).size(13).style(text::secondary)].spacing(2)].spacing(6).into());
+        let place = |kind: crate::settings::PlaceKind| {
+            let p = self.places.iter().find(|p| p.kind == kind);
+            let state = match p {
+                Some(p) if p.online => "set".to_owned(),
+                Some(p) if p.path.is_some() => "not there (its disk?)".to_owned(),
+                _ => "not set".to_owned(),
+            };
+            text(format!("{}: {state}", kind.label())).size(13)
+        };
+        use crate::settings::PlaceKind;
+        let places = row![place(PlaceKind::Tmp), place(PlaceKind::Projects), place(PlaceKind::Sources), space().width(Length::Fill), ui::act("Folders…", ui::Kind::Secondary).on_press(Message::Settings)].spacing(16).align_y(Alignment::Center);
+        let card = column![
+            text("How Dailix works").size(22),
+            column(steps).spacing(10),
+            iced::widget::rule::horizontal(1),
+            places,
+            row![space().width(Length::Fill), ui::act("Close", ui::Kind::Secondary).on_press(Message::HowItWorks)],
+        ]
+        .spacing(ui::DIALOG_GAP);
+        modal(ui::dialog(card, 640.0), Message::HowItWorks)
     }
 
     /// About Dailix: its name, version and what it's for.
@@ -153,7 +184,7 @@ mod tests {
     fn the_jobs_under_way_are_said_in_a_line() {
         assert_eq!(busy_line(0, 0, 0, 0, None), "");
         assert_eq!(busy_line(12, 1, 1, 0, None), "adding videos · making an edit · posters: 12 left");
-        assert_eq!(busy_line(0, 2, 0, 1, Some((2, 7))), "filing 3 of 7 · adding videos to 2 trips · cleaning 1 voice");
+        assert_eq!(busy_line(0, 2, 0, 1, Some("filing 3 of 7".into())), "filing 3 of 7 · adding videos to 2 trips · cleaning 1 voice");
     }
 
     #[test]

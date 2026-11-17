@@ -129,6 +129,7 @@ impl App {
                 act(format!("Text at 100% (now {:.0}%)", self.scale * 100.0), "Ctrl+0", Message::Scale(0)),
                 Entry::Rule,
                 act("Open a trip folder…", "", Message::Open),
+                act("How Dailix works", "", Message::HowItWorks),
                 act("Keyboard shortcuts", "F1", Message::Help),
                 act("Settings", "Ctrl+,", Message::Settings),
                 act("About Dailix", "", Message::About),

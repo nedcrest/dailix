@@ -3,6 +3,19 @@
 //! The same list is the guide's reference page (`dailix keys`, kept in
 //! Omnix's `docs/guide/keys-dailix.md`, checked by a test).
 
+/// The way footage goes through Dailix, a step each (the user,
+/// 2026-11-17: «what next?» wasn't said anywhere): what it is, where in
+/// the window it's done. «How Dailix works» in ☰ shows it.
+pub const WAY: [(&str, &str); 7] = [
+    ("Into TMP", "Copy what the cameras and phones filmed into the TMP folder (by hand for now; Dailix doesn't read cards yet)."),
+    ("Sort into trips", "Home's «TMP» button: pick videos, choose a trip (or make one) and its parts, «File». Copies go into the trip by day; TMP keeps the originals."),
+    ("Into the archive", "In the sorter, a day's «Into the archive»: the originals copied into the Sources folder by trip and day, each checked by its hash."),
+    ("Free TMP", "Then «Free TMP»: the originals the archive holds (checked again) go to the trash."),
+    ("Choose", "The trip's contact sheet: rate (P ? X), mark segments (I O), write each day's story."),
+    ("Parts", "Your own groups across days («Rides on Kos»): from the sorter, the sheet's pane, the trip's page."),
+    ("Into Omnix", "«→ Omnix» on a day, the trip or a part: an edit of what you chose, opened in Omnix."),
+];
+
 /// The groups: a title and its lines (keys, what they do).
 pub const GROUPS: [(&str, &[(&str, &str)]); 6] = [
     (

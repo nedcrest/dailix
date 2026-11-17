@@ -55,6 +55,10 @@ pub struct Sorter {
     /// (where the pointer was first seen, and the share then).
     pub share: f32,
     pub grip: Option<Option<(f32, f32)>>,
+    /// Videos going into the archive or out of TMP (gap 119); the ones
+    /// TMP is asked to let go.
+    pub moving: Option<super::sorter_archive::Moving>,
+    pub asking_free: Option<Vec<usize>>,
     /// Shift and Ctrl as they are now, for a click on a tile.
     pub mods: iced::keyboard::Modifiers,
 }
@@ -79,6 +83,13 @@ pub enum SortMsg {
     Grip,
     Drag(iced::Point),
     Release,
+    /// After filing (gap 119): videos into the archive; TMP asked to let
+    /// them go, said no or yes to; one done (its archive copy, if made).
+    Archive(Vec<usize>),
+    FreeAsk(Vec<usize>),
+    FreeCancel,
+    FreeConfirm,
+    MovedOne(usize, Result<Option<crate::archive::Archived>, String>),
     Loaded(PathBuf, Slot),
     Toggle,
     Scrub(f64),
@@ -146,6 +157,7 @@ impl App {
             SortMsg::File => return self.file_picked(),
             SortMsg::FiledOne(said) => return self.filed_one(said),
             m @ (SortMsg::Grip | SortMsg::Drag(_) | SortMsg::Release) => self.sort_grip(m),
+            m @ (SortMsg::Archive(_) | SortMsg::FreeAsk(_) | SortMsg::FreeCancel | SortMsg::FreeConfirm | SortMsg::MovedOne(..)) => return self.on_archive(m),
             m => self.sort_player(m),
         }
         Task::none()
@@ -424,10 +436,9 @@ impl App {
         let place = self.tmp_place().unwrap_or_default();
         let mut days = column![].spacing(10);
         for (day, list) in tmp::by_day(&s.raws) {
-            let filed = list.iter().filter(|i| !s.ledger.filed(&s.raws[**i].rel).is_empty()).count();
-            let head = format!("{} · {} · {filed} filed", day.as_deref().unwrap_or("No date"), crate::library::count(list.len(), "video"));
+            let head = self.day_head(s, day.as_deref(), &list);
             let tiles = iced::widget::row(list.iter().map(|i| self.sort_tile(s, *i, &place))).spacing(8).wrap().vertical_spacing(8);
-            days = days.push(text(head).size(14).style(text::secondary)).push(tiles);
+            days = days.push(head).push(tiles);
         }
         days.padding(iced::Padding { bottom: 8.0, ..Default::default() }).into()
     }
@@ -487,9 +498,15 @@ impl App {
             None => "File".to_owned(),
         };
         let file = tip(ui::act(go, ui::Kind::Primary).width(Length::Fill).on_press_maybe(ready.then_some(to(SortMsg::File))), text("Copied in, each under its day; TMP keeps them (Enter)"), tooltip::Position::Top);
-        let head = text(if picked == 0 { "Nothing picked".to_owned() } else { format!("{} picked", crate::library::count(picked, "video")) }).size(18);
+        let head = row![
+            text(if picked == 0 { "Nothing picked".to_owned() } else { format!("{} picked", crate::library::count(picked, "video")) }).size(18),
+            space().width(Length::Fill),
+            tip(ui::small("?", ui::Kind::Quiet).on_press(Message::HowItWorks), text("How Dailix works: TMP → trips → the archive → TMP freed"), tooltip::Position::Left),
+        ]
+        .align_y(Alignment::Center);
         let hint = text(format!("{} new in TMP · Shift or Ctrl and a click pick more", s.new_ones())).size(12).style(text::secondary);
-        column![head, hint, rule::horizontal(1), label("Trip"), trip, day, self.sort_parts(s, chosen.as_ref()), rule::horizontal(1), file].spacing(10).into()
+        let next = (picked > 0).then(|| text(super::sorter_archive::next_line(crate::archive::next(&s.stages(&s.picked)))).size(13));
+        column![head, hint].push(next).push(rule::horizontal(1)).push(column![ label("Trip"), trip, day, self.sort_parts(s, chosen.as_ref()), rule::horizontal(1), file].spacing(10)).spacing(10).into()
     }
 
     /// The trip's parts to tick, and a new one.

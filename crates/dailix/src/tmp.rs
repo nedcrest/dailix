@@ -42,6 +42,9 @@ pub struct Filed {
 pub struct Ledger {
     #[serde(default)]
     pub files: BTreeMap<String, Vec<Filed>>,
+    /// The videos copied into the archive and checked there (gap 119).
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub archived: BTreeMap<String, crate::archive::Archived>,
 }
 
 impl Ledger {
@@ -67,7 +70,8 @@ impl Ledger {
     /// video whose copy was taken out of the trip is new in TMP again.
     pub fn keep(&self, there: impl Fn(&Filed) -> bool) -> Ledger {
         let files = self.files.iter().map(|(rel, went)| (rel.clone(), went.iter().filter(|f| there(f)).cloned().collect::<Vec<_>>())).filter(|(_, went)| !went.is_empty()).collect();
-        Ledger { files }
+        // What's in the archive stays so, whatever became of the trip's copy.
+        Ledger { files, archived: self.archived.clone() }
     }
 
     /// The ledger in `tmp` as it stands now: only the copies still in

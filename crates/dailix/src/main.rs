@@ -2,6 +2,7 @@
 //! the command line for tests and an AI: the same core under both.
 
 mod add;
+mod archive;
 mod app;
 mod delete;
 mod help;
@@ -174,12 +175,52 @@ enum TmpCmd {
         #[arg(long)]
         part: Vec<String>,
     },
+    /// TMP's filed videos not in the archive yet copied into the Sources
+    /// folder (`<trip>/<day>/`), each checked there by its hash.
+    Archive,
+    /// TMP's videos the archive holds, to the trash, each archive copy
+    /// checked again first. Without --yes, only says what would go.
+    Free {
+        #[arg(long)]
+        yes: bool,
+    },
 }
 
 /// `dailix tmp …`.
 fn tmp_cmd(cmd: TmpCmd) -> Result<(), Box<dyn std::error::Error>> {
     let place = settings::Settings::load().tmp.filter(|d| d.is_dir()).ok_or("TMP isn't set, or isn't there (dailix places --tmp FOLDER)")?;
+    let ledger = || tmp::Ledger::now(&place, settings::Settings::load().projects.as_deref());
     match cmd {
+        TmpCmd::Archive => {
+            let sources = settings::Settings::load().place(settings::PlaceKind::Sources).filter(|p| p.is_dir()).ok_or("the archive (Sources) isn't set, or isn't there (dailix places --sources FOLDER)")?;
+            let l = ledger();
+            let todo: Vec<tmp::Raw> = tmp::scan(&place).into_iter().filter(|r| archive::stage(&l, &r.rel) == archive::Stage::Filed).collect();
+            for r in todo {
+                let filed = l.filed(&r.rel)[0].clone();
+                match archive::archive_one(&r.path, &filed, &sources) {
+                    Ok(a) => {
+                        println!("{}  → {}", r.rel, a.path.display());
+                        let mut on_disk = tmp::Ledger::load(&place);
+                        on_disk.archived.insert(r.rel, a);
+                        on_disk.save(&place)?;
+                    }
+                    Err(e) => println!("{}  not archived: {e}", r.rel),
+                }
+            }
+        }
+        TmpCmd::Free { yes } => {
+            let l = ledger();
+            for r in tmp::scan(&place).into_iter().filter(|r| archive::stage(&l, &r.rel) == archive::Stage::Archived) {
+                if !yes {
+                    println!("{}  would go (archived at {})", r.rel, l.archived[&r.rel].path.display());
+                    continue;
+                }
+                match archive::free_one(&r.path, &tmp::poster(&place, &r.rel), &l.archived[&r.rel]) {
+                    Ok(()) => println!("{}  to the trash", r.rel),
+                    Err(e) => println!("{}  kept: {e}", r.rel),
+                }
+            }
+        }
         TmpCmd::List => print!("{}", tmp::describe(&tmp::scan(&place), &tmp::Ledger::load(&place))),
         TmpCmd::File { trip, files, day, part } => {
             let files: Vec<PathBuf> = files.into_iter().map(|f| if f.is_absolute() { f } else { place.join(f) }).collect();

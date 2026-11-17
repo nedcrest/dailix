@@ -21,6 +21,7 @@ schemars.workspace = true
 trash = { version = "5", default-features = false }
 # When a video was last changed, in local time (the same as Omnix's).
 chrono = { version = "0.4.45", default-features = false, features = ["clock"] }
+blake3 = { version = "1", default-features = false, features = ["std"] }
 
 # Free space on a disk (statvfs), for the home view's places.
 [target.'cfg(unix)'.dependencies]
