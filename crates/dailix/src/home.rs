@@ -184,7 +184,9 @@ impl App {
             Message::OpenDay(root, day) => {
                 self.save_about();
                 self.at_home = false;
-                let open = if self.project.as_ref().map(|p| &p.footage.layout.root) != Some(&root) { self.load(root) } else { Task::none() };
+                // Read afresh even when it's the open one: the TMP sorter may
+                // have filed clips or parts into it meanwhile.
+                let open = self.load(root);
                 // The day's first clip the filter shows (a hidden one has no
                 // tile to scroll to: the audit, 2026-11-14), and its heading
                 // brought up either way.
@@ -434,8 +436,22 @@ impl App {
         }
     }
 
+    /// The open project's marking read again from its file, if it reads.
+    pub(super) fn reread_sheet(&mut self) {
+        if let Some(p) = self.project.as_mut()
+            && let Ok(sheet) = p.store.read().map_err(|e| e.to_string()).and_then(|d| d.sheet().map_err(|e| e.to_string()))
+        {
+            p.sheet = sheet;
+        }
+    }
+
     /// Reads the trips and the places again.
     pub(super) fn refresh_home(&mut self) {
+        // The open trip's marking too: the TMP sorter and the trip's page
+        // write it through their own Store, and the sheet kept showing
+        // what it had read (the user, 2026-11-17: a part made in TMP
+        // wasn't in the pane's Parts).
+        self.reread_sheet();
         let (trips, skipped) = self.settings.projects.as_deref().map(library::trips).unwrap_or_default();
         // TMP's new videos counted by their places only (no ffprobe): the
         // button that opens the sorter says it.

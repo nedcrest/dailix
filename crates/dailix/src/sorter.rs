@@ -11,7 +11,7 @@ use super::pane::Slot;
 use super::{App, Message, blocking, tip};
 use crate::tmp::{self, Raw};
 use crate::ui;
-use iced::widget::{button, checkbox, column, container, image, pick_list, row, rule, scrollable, slider, space, text, text_input, tooltip};
+use iced::widget::{checkbox, column, container, image, pick_list, row, rule, scrollable, slider, space, text, text_input, tooltip};
 use iced::{Alignment, Element, Length, Task};
 use omnix::viewer::Viewer;
 use std::path::PathBuf;
@@ -245,14 +245,26 @@ impl App {
                 }
             }
             SortMsg::NewPart(typed) => s.new_part = typed,
-            // A new part is ticked at once; it's made in the trip when
+            // A new part is ticked at once, and made in the trip at once
+            // when one is chosen (the user, 2026-11-17: made here, it was
+            // nowhere else till videos went in); with no trip yet, when
             // the first videos go into it (`tmp::part_ops`).
             SortMsg::AddPart => {
                 let name = s.new_part.trim().to_owned();
                 if !name.is_empty() && !s.parts.iter().any(|p| dailix_sheet::parts::same_name(p, &name)) {
-                    s.parts.push(name);
+                    s.parts.push(name.clone());
                 }
                 s.new_part.clear();
+                if let Some(root) = s.trip.clone().filter(|_| !name.is_empty()) {
+                    let known: Vec<String> = self.trips.iter().find(|t| t.root == root).map(|t| t.parts.iter().map(|p| p.name.clone()).collect()).unwrap_or_default();
+                    let ops = tmp::part_ops(&known, &[name], &[]);
+                    if !ops.is_empty() {
+                        match dailix_sheet::Store::new(dailix_sheet::Layout::new(&root).sheet()).apply(&ops) {
+                            Ok(_) => self.refresh_home(),
+                            Err(e) => self.error = Some(e.to_string()),
+                        }
+                    }
+                }
             }
             SortMsg::Day(typed) => s.day = typed,
             _ => {}
@@ -448,34 +460,57 @@ impl App {
         days.padding(iced::Padding { bottom: 8.0, ..Default::default() }).into()
     }
 
+    /// A video as a tile, as the contact sheet's are (the user, 2026-11-17:
+    /// the lines were hard to read): a card on its own background, a band
+    /// on top saying its stage, the poster on black in a frame of one
+    /// size, the name at full brightness, «in the trip's days» in green,
+    /// its part on a chip of its own.
     fn sort_tile<'a>(&'a self, s: &'a Sorter, i: usize, place: &std::path::Path) -> Element<'a, Message> {
+        use crate::archive::Stage;
         let r = &s.raws[i];
         let h = (TILE * 9.0 / 16.0).round();
         let poster = tmp::poster(place, &r.rel);
-        let picture: Element<'a, Message> = if poster.is_file() { image(image::Handle::from_path(poster)).width(TILE).height(h).into() } else { container(text("…").size(12)).width(TILE).height(h).center_x(TILE).center_y(h).style(container::rounded_box).into() };
-        let filed = s.ledger.filed(&r.rel);
+        let shown: Element<'a, Message> = if poster.is_file() { image(image::Handle::from_path(poster)).height(h).into() } else { text("…").size(12).into() };
+        let picture = container(shown).width(TILE).height(h).center_x(TILE).center_y(h).style(|_: &iced::Theme| container::background(iced::Color::BLACK));
         let name = r.path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
         let stage = crate::archive::stage(&s.ledger, &r.rel);
-        // Two lines: in the trip's days, then in which parts (or none).
-        let (went, part, in_part) = match (filed.first(), stage) {
-            (Some(f), _) => self.went(f),
+        let (went, part, in_part) = match (s.ledger.filed(&r.rel).first(), stage) {
+            (Some(f), Stage::Filed | Stage::Archived) => self.went(f),
             // In the archive, its trip's copy gone since: not new.
-            (None, crate::archive::Stage::Archived) => ("✓ In the archive".to_owned(), String::new(), false),
+            (_, Stage::Archived) => ("✓ In the archive".to_owned(), String::new(), false),
             _ => (format!("{:.0} s · new", r.duration), String::new(), false),
         };
-        let filed = if stage == crate::archive::Stage::New { &[][..] } else { filed };
-        let mut info = column![text(crate::library::middle(&name, 26)).size(12), text(went).size(11).style(if filed.is_empty() && stage == crate::archive::Stage::New { text::secondary } else { text::success })].spacing(2).width(TILE);
+        let went = text(went).size(12).style(if stage == Stage::New { text::secondary } else { text::success });
+        let mut info = column![text(crate::library::middle(&name, 24)).size(13).wrapping(text::Wrapping::None), went].spacing(4).width(TILE);
         if !part.is_empty() {
-            info = info.push(text(crate::library::middle(&part, 30)).size(11).style(if in_part { text::primary } else { text::secondary }));
+            let chip: Element<'a, Message> = if in_part {
+                container(text(crate::library::middle(&part, 28)).size(12)).padding([1, 6]).style(|t: &iced::Theme| container::Style {
+                    background: Some(t.extended_palette().primary.weak.color.into()),
+                    text_color: Some(t.extended_palette().primary.weak.text),
+                    border: iced::Border { radius: 4.0.into(), ..Default::default() },
+                    ..Default::default()
+                }).into()
+            } else {
+                text(part).size(12).style(text::base).into()
+            };
+            info = info.push(chip);
         }
+        // A band as the sheet's rating band: its stage at a glance.
+        let band_color = move |t: &iced::Theme| match stage {
+            Stage::New => None,
+            Stage::Filed => Some(t.extended_palette().success.base.color),
+            Stage::Archived => Some(t.extended_palette().primary.base.color),
+        };
+        let band = container(space().height(3).width(TILE)).style(move |t: &iced::Theme| container::Style { background: band_color(t).map(Into::into), ..Default::default() });
         let picked = s.picked.contains(&i);
-        let tile = button(column![picture, info].spacing(4)).padding(4).on_press(Message::Sort(SortMsg::Click(i))).style(move |t, st| {
-            let mut b = if picked { button::primary(t, st) } else { button::text(t, st) };
-            if !picked && !filed.is_empty() {
-                b.text_color = t.extended_palette().background.strong.color;
+        let card = container(column![band, picture, info].spacing(5)).padding(6).style(move |t: &iced::Theme| {
+            let mut c = container::rounded_box(t);
+            if picked {
+                c.border = iced::Border { color: t.extended_palette().primary.strong.color, width: 2.0, radius: c.border.radius };
             }
-            b
+            c
         });
+        let tile = iced::widget::mouse_area(card).on_press(Message::Sort(SortMsg::Click(i)));
         container(tip(tile, text(r.rel.clone()), tooltip::Position::Bottom)).id(tile_id(&r.rel)).into()
     }
 
