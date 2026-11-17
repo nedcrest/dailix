@@ -224,6 +224,9 @@ fn tmp_cmd(cmd: TmpCmd) -> Result<(), Box<dyn std::error::Error>> {
                     Err(e) => println!("{}  kept: {e}", r.rel),
                 }
             }
+            if yes {
+                tmp::drop_empty_folders(&place);
+            }
         }
         TmpCmd::List => print!("{}", tmp::describe(&tmp::scan(&place), &tmp::Ledger::load(&place))),
         TmpCmd::File { trip, files, day, part } => {

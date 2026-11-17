@@ -203,7 +203,13 @@ impl App {
             self.error = Some(format!("{} didn't: {first}", crate::library::count(m.failed.len(), "video")));
         }
         self.refresh_home();
-        if m.free || m.both { self.update(Message::Sort(SortMsg::Open)) } else { Task::none() }
+        if m.free || m.both {
+            if let Some(t) = &self.settings.tmp {
+                crate::tmp::drop_empty_folders(t);
+            }
+            return self.update(Message::Sort(SortMsg::Open));
+        }
+        Task::none()
     }
 
     /// A day's head: where its videos are, and its next step as a button.

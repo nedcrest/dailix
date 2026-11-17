@@ -423,7 +423,14 @@ impl App {
         }
         if s.raws.is_empty() {
             let place = self.tmp_place().map(|p| p.display().to_string()).unwrap_or_default();
-            return container(column![text("TMP is empty").size(20), text(format!("Videos put into {place} show here, by the day they were filmed.")).size(14).style(text::secondary)].spacing(8).align_x(Alignment::Center)).center(Length::Fill).into();
+            let words = column![
+                text("TMP is empty").size(22),
+                text(format!("Videos put into {place} show here, by the day they were filmed.")).size(14).style(text::secondary),
+                ui::act("How Dailix works", ui::Kind::Secondary).on_press(Message::HowItWorks),
+            ]
+            .spacing(10)
+            .align_x(Alignment::Center);
+            return container(words).width(Length::Fill).center_x(Length::Fill).padding([80, 16]).into();
         }
         // The edge between them: dragged, the player grows or shrinks.
         let grip = iced::widget::mouse_area(container(rule::horizontal(2)).height(10).width(Length::Fill).center_y(10)).on_press(Message::Sort(SortMsg::Grip)).interaction(iced::mouse::Interaction::ResizingVertically);

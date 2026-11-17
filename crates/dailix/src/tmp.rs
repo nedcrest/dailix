@@ -184,6 +184,24 @@ pub fn scan(tmp: &Path) -> Vec<Raw> {
         .collect()
 }
 
+/// The folders under `tmp` left empty (TMP freed of their videos) taken
+/// away, deepest first; TMP itself and Dailix's own `.dailix` stay. How
+/// many went.
+pub fn drop_empty_folders(tmp: &Path) -> usize {
+    let mut dirs = Vec::new();
+    let mut todo = vec![tmp.to_path_buf()];
+    while let Some(d) = todo.pop() {
+        for e in std::fs::read_dir(&d).into_iter().flatten().flatten() {
+            if e.file_type().is_ok_and(|t| t.is_dir()) && !e.file_name().to_string_lossy().starts_with('.') {
+                todo.push(e.path());
+                dirs.push(e.path());
+            }
+        }
+    }
+    dirs.sort_by_key(|d| std::cmp::Reverse(d.components().count()));
+    dirs.into_iter().filter(|d| std::fs::remove_dir(d).is_ok()).count()
+}
+
 /// Where the poster of TMP's video `rel` is kept: in TMP's own
 /// `.dailix/posters`, a name per place (`card/DJI_0001.MP4` →
 /// `card__DJI_0001.MP4.jpg`), never beside the videos.
@@ -515,6 +533,19 @@ mod tests {
         assert_eq!(went_lines("Kos", &[]), ("✓ In Kos's days".to_owned(), "In no part".to_owned()));
         assert_eq!(went_lines("Kos", &["Rides", "Beach"]).1, "Part: Rides, Beach");
         assert_eq!((player_share(0.05), player_share(0.4), player_share(0.9)), (0.15, 0.4, 0.75));
+    }
+
+    #[test]
+    fn an_emptied_tmp_loses_its_empty_folders_not_its_own() {
+        let dir = std::env::temp_dir().join(format!("dailix-tmp-empty-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        for d in ["card/DCIM/100", "phone", ".dailix/posters", "kept"] {
+            std::fs::create_dir_all(dir.join(d)).unwrap();
+        }
+        std::fs::write(dir.join("kept/a.mp4"), b"x").unwrap();
+        assert_eq!(drop_empty_folders(&dir), 4);
+        assert!(dir.join(".dailix/posters").is_dir() && dir.join("kept/a.mp4").is_file() && !dir.join("card").exists() && dir.is_dir());
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]
